@@ -99,6 +99,11 @@ impl Renderer {
         let board_width = state.board.get_width();
         let board_height = state.board.get_height();
 
+        let ghost_y = state
+            .config
+            .enable_ghost_piece
+            .then(|| Self::calculate_ghost_y(state));
+
         let mut board_lines = Vec::with_capacity(board_height);
 
         for y in 0..board_height {
@@ -107,11 +112,16 @@ impl Renderer {
             line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
 
             for x in 0..board_width {
-                let cell_content = Self::get_combined_cell(state, x, y);
+                let (cell_content, is_ghost) = Self::get_combined_cell(state, ghost_y, x, y);
                 let color = Self::get_piece_color(cell_content);
 
                 let block_str = "██";
-                line_spans.push(Span::styled(block_str, Style::default().fg(color)));
+                let style = if is_ghost {
+                    Style::default().fg(color).add_modifier(Modifier::DIM)
+                } else {
+                    Style::default().fg(color)
+                };
+                line_spans.push(Span::styled(block_str, style));
             }
 
             line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
@@ -136,18 +146,60 @@ impl Renderer {
         f.render_widget(paragraph, area);
     }
 
-    fn get_combined_cell(state: &GameState, x: usize, y: usize) -> Option<TetriminoType> {
+    fn calculate_ghost_y(state: &GameState) -> i32 {
+        if let Some(ref piece) = state.current_piece {
+            let mut ghost_y = piece.y;
+            loop {
+                let test_piece = crate::tetrimino::Tetrimino {
+                    x: piece.x,
+                    y: ghost_y + 1,
+                    kind: piece.kind,
+                    rotation: piece.rotation,
+                };
+
+                if !state.board.is_valid_position(&test_piece) {
+                    break;
+                }
+                ghost_y += 1;
+            }
+            ghost_y
+        } else {
+            0
+        }
+    }
+
+    fn get_combined_cell(
+        state: &GameState,
+        ghost_y: Option<i32>,
+        x: usize,
+        y: usize,
+    ) -> (Option<TetriminoType>, bool) {
+        let xi = x as i32;
+        let yi = y as i32;
+
         if let Some(ref piece) = state.current_piece {
             for (dx, dy) in piece.get_blocks() {
-                let piece_x = (piece.x + dx) as usize;
-                let piece_y = (piece.y + dy) as usize;
-                if piece_x == x && piece_y == y {
-                    return Some(piece.kind);
+                let piece_x = piece.x + dx;
+                let piece_y = piece.y + dy;
+
+                if piece_x == xi && piece_y == yi {
+                    return (Some(piece.kind), false);
+                }
+            }
+
+            if let Some(ghost_pos) = ghost_y {
+                for (dx, dy) in piece.get_blocks() {
+                    let ghost_piece_x = piece.x + dx;
+                    let ghost_piece_y = ghost_pos + dy;
+
+                    if ghost_piece_x == xi && ghost_piece_y == yi {
+                        return (Some(piece.kind), true);
+                    }
                 }
             }
         }
 
-        state.board.get_cell(x, y)
+        (state.board.get_cell(x, y), false)
     }
 
     fn get_piece_color(piece_type: Option<TetriminoType>) -> Color {
