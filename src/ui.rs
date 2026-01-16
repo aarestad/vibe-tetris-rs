@@ -1,6 +1,7 @@
 use crate::config::GameConfig;
 use crate::game_state::GameState;
 use crate::tetrimino::TetriminoType;
+use anyhow::Result;
 use crossterm::{
     ExecutableCommand, QueueableCommand,
     cursor::{Hide, MoveTo, Show},
@@ -8,7 +9,6 @@ use crossterm::{
     terminal::{Clear, ClearType},
 };
 use std::io::{Write, stdout};
-use anyhow::Result;
 
 pub struct Renderer {
     config: GameConfig,
