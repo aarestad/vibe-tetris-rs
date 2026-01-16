@@ -9,7 +9,9 @@ mod ui;
 use crate::config::GameConfig;
 use crate::game::Game;
 
-fn main() {
+use anyhow::Result;
+
+fn main() -> Result<()> {
     let config = GameConfig::default();
 
     // Example: Load custom config
@@ -18,5 +20,7 @@ fn main() {
     //     .unwrap_or_else(|_| GameConfig::default());
 
     let mut game = Game::new(config);
-    game.run();
+    game.run()?;
+
+    Ok(())
 }

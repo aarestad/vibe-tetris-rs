@@ -3,8 +3,8 @@ use crate::game_state::GameState;
 use crate::tetrimino::TetriminoType;
 use anyhow::Result;
 use crossterm::{
-    ExecutableCommand, QueueableCommand,
-    cursor::{Hide, MoveTo, Show},
+    QueueableCommand,
+    cursor::{Hide, MoveTo},
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{Clear, ClearType},
 };
@@ -169,7 +169,7 @@ impl Renderer {
         // Show first 3 next pieces
         for (i, &piece_type) in state.next_pieces.iter().take(3).enumerate() {
             let offset_y = next_y + 2 + (i * 4);
-            self.render_mini_piece(stdout, piece_type, next_x, offset_y);
+            self.render_mini_piece(stdout, piece_type, next_x, offset_y)?;
         }
 
         stdout.queue(ResetColor)?;
@@ -187,7 +187,7 @@ impl Renderer {
             .queue(Print("HOLD:\n"))?;
 
         if let Some(piece_type) = state.held_piece {
-            self.render_mini_piece(stdout, piece_type, hold_x, hold_y + 2);
+            self.render_mini_piece(stdout, piece_type, hold_x, hold_y + 2)?;
         }
 
         stdout.queue(ResetColor)?;
@@ -229,21 +229,25 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn render_pause(&self, state: &GameState) {
-        self.render(state);
+    pub fn render_pause(&self, state: &GameState) -> Result<()> {
+        self.render(state)?;
         println!("\n=== PAUSED ===");
         println!("Press PAUSE again to resume");
         println!("Press QUIT to exit game");
         println!("==============");
+
+        Ok(())
     }
 
-    pub fn render_game_over(&self, state: &GameState) {
-        self.clear_screen();
-        self.render(state);
+    pub fn render_game_over(&self, state: &GameState) -> Result<()> {
+        self.clear_screen()?;
+        self.render(state)?;
         println!("\n=== GAME OVER ===");
         println!("Final Score: {}", state.score);
         println!("Level Reached: {}", state.level);
         println!("Lines Cleared: {}", state.lines_cleared);
         println!("================");
+
+        Ok(())
     }
 }

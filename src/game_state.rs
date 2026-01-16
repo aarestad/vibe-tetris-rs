@@ -105,7 +105,7 @@ impl GameState {
                 .board
                 .is_valid_position(self.current_piece.as_ref().unwrap())
             {
-                let kicks = self.get_wall_kicks(piece_type, old_rotation, new_rotation, clockwise);
+                let kicks = self.get_wall_kicks(piece_type, old_rotation, new_rotation);
                 let mut kicked = false;
 
                 for (dx, dy) in kicks {
@@ -205,7 +205,6 @@ impl GameState {
         piece_type: TetriminoType,
         from_rotation: usize,
         to_rotation: usize,
-        clockwise: bool,
     ) -> Vec<(i32, i32)> {
         // Super Rotation System wall kick tables
         // Format: (dx, dy) offsets to try

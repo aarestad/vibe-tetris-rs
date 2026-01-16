@@ -13,6 +13,7 @@ use crossterm::{
 };
 use std::io::{Write, stdout};
 use std::time::{Duration, Instant};
+use anyhow::Result;
 
 pub struct Game {
     state: GameState,
@@ -33,7 +34,7 @@ impl Game {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> Result<()> {
         // Setup terminal
         let _cleanup = setup_terminal();
 
@@ -51,7 +52,7 @@ impl Game {
 
             // Handle input
             if let Some(action) = self.input.poll_input() {
-                self.handle_input(action);
+                self.handle_input(action)?;
             }
 
             // Apply gravity
@@ -63,12 +64,12 @@ impl Game {
             }
 
             // Render
-            self.renderer.clear_screen();
-            self.renderer.render(&self.state);
+            self.renderer.clear_screen()?;
+            self.renderer.render(&self.state)?;
 
             // Check for game over
             if self.state.game_over {
-                self.renderer.render_game_over(&self.state);
+                self.renderer.render_game_over(&self.state)?;
                 // Wait for any key press before exiting
                 let _ = std::io::stdout().flush();
                 while self.input.poll_input().is_none() {
@@ -81,8 +82,11 @@ impl Game {
             if frame_time < frame_duration {
                 std::thread::sleep(frame_duration - frame_time);
             }
+
             last_update = now;
         }
+
+        Ok(())
     }
 
     fn get_gravity_duration(&self) -> Duration {
@@ -94,7 +98,7 @@ impl Game {
         Duration::from_millis(gravity_ms as u64)
     }
 
-    fn handle_input(&mut self, action: InputAction) {
+    fn handle_input(&mut self, action: InputAction) -> Result<()> {
         match action {
             InputAction::MoveLeft => {
                 self.state.move_piece(-1, 0);
@@ -118,18 +122,20 @@ impl Game {
                 self.state.hold_piece();
             }
             InputAction::Pause => {
-                self.handle_pause();
+                self.handle_pause()?;
             }
             InputAction::Quit => {
                 self.state.game_over = true;
             }
         }
+
+        Ok(())
     }
 
-    fn handle_pause(&mut self) {
+    fn handle_pause(&mut self) -> Result<()> {
         // Display pause screen
-        self.renderer.clear_screen();
-        self.renderer.render_pause(&self.state);
+        self.renderer.clear_screen()?;
+        self.renderer.render_pause(&self.state)?;
 
         // Wait for pause to be toggled again
         loop {
@@ -152,6 +158,7 @@ impl Game {
         // let now = Instant::now();
         // Note: In a full implementation, we'd reset last_gravity and last_update here
         // For now, the timing will reset naturally in the next game loop iteration
+        Ok(())
     }
 }
 

@@ -20,15 +20,14 @@ impl InputHandler {
     }
 
     pub fn poll_input(&self) -> Option<InputAction> {
-        if let Ok(true) = event::poll(std::time::Duration::from_millis(0)) {
-            if let Ok(Event::Key(KeyEvent {
+        if let Ok(true) = event::poll(std::time::Duration::from_millis(0))
+            && let Ok(Event::Key(KeyEvent {
                 code,
                 kind: KeyEventKind::Press,
                 ..
             })) = event::read()
-            {
-                return self.key_to_action(code);
-            }
+        {
+            return self.key_to_action(code);
         }
         None
     }
