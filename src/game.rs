@@ -6,6 +6,12 @@ use crate::config::GameConfig;
 use crate::game_state::GameState;
 use crate::input::{InputAction, InputHandler};
 use crate::ui::Renderer;
+use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use std::io::{Write, stdout};
 use std::time::{Duration, Instant};
 
 pub struct Game {
@@ -28,6 +34,9 @@ impl Game {
     }
 
     pub fn run(&mut self) {
+        // Setup terminal
+        let _cleanup = setup_terminal();
+
         self.state.spawn_piece();
 
         // Game loop timing variables
@@ -60,6 +69,11 @@ impl Game {
             // Check for game over
             if self.state.game_over {
                 self.renderer.render_game_over(&self.state);
+                // Wait for any key press before exiting
+                let _ = std::io::stdout().flush();
+                while self.input.poll_input().is_none() {
+                    std::thread::sleep(Duration::from_millis(16));
+                }
                 break;
             }
 
@@ -139,4 +153,23 @@ impl Game {
         // Note: In a full implementation, we'd reset last_gravity and last_update here
         // For now, the timing will reset naturally in the next game loop iteration
     }
+}
+
+// Terminal cleanup guard using RAII
+struct TerminalCleanup;
+
+impl Drop for TerminalCleanup {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        let _ = stdout().flush();
+    }
+}
+
+fn setup_terminal() -> TerminalCleanup {
+    enable_raw_mode().expect("Failed to enable raw mode");
+    execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)
+        .expect("Failed to enter alternate screen");
+
+    TerminalCleanup
 }
