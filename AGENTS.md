@@ -6,6 +6,10 @@ This file contains guidelines and commands for agentic coding agents working on 
 
 This is a terminal-based Tetris game written in Rust (edition 2024) using the crossterm crate for cross-platform terminal UI. The game follows standard Tetris mechanics with support for configuration files, different tetrimino types, and full game loop implementation.
 
+The design of the game aims to implement as much as possible of the official
+[Tetris Design Guidelines](./2009%20Tetris%20Design%20Guideline.pdf), including T-Spins, Variable Goal System, and Super
+Rotation.
+
 ## Build, Test, and Development Commands
 
 ### Core Commands
