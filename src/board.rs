@@ -55,4 +55,20 @@ impl Board {
 
         lines_cleared
     }
+
+    pub fn get_cell(&self, x: usize, y: usize) -> Option<TetriminoType> {
+        if y < self.height && x < self.width {
+            self.cells[y][x]
+        } else {
+            None
+        }
+    }
+
+    pub fn get_width(&self) -> usize {
+        self.width
+    }
+
+    pub fn get_height(&self) -> usize {
+        self.height
+    }
 }
