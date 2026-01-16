@@ -1,4 +1,4 @@
-use crate::tetrimino::{TetriminoType, Tetromino};
+use crate::tetrimino::{Tetrimino, TetriminoType};
 
 pub struct Board {
     width: usize,
@@ -15,7 +15,7 @@ impl Board {
         }
     }
 
-    pub fn is_valid_position(&self, tetromino: &Tetromino) -> bool {
+    pub fn is_valid_position(&self, tetromino: &Tetrimino) -> bool {
         for (dx, dy) in tetromino.get_blocks() {
             let x = tetromino.x + dx;
             let y = tetromino.y + dy;
@@ -31,7 +31,7 @@ impl Board {
         true
     }
 
-    pub fn lock_tetromino(&mut self, tetromino: &Tetromino) {
+    pub fn lock_tetromino(&mut self, tetromino: &Tetrimino) {
         for (dx, dy) in tetromino.get_blocks() {
             let x = (tetromino.x + dx) as usize;
             let y = (tetromino.y + dy) as usize;

@@ -16,8 +16,10 @@ impl Renderer {
 
     pub fn render(&self, state: &GameState) {
         // TODO: Implement actual terminal rendering using crossterm
-        println!("Score: {} | Level: {} | Lines: {}",
-                 state.score, state.level, state.lines_cleared);
+        println!(
+            "Score: {} | Level: {} | Lines: {}",
+            state.score, state.level, state.lines_cleared
+        );
         println!("Board rendering would go here");
     }
 

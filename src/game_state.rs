@@ -1,10 +1,10 @@
 use crate::board::Board;
 use crate::config::GameConfig;
-use crate::tetrimino::{TetriminoType, Tetromino};
+use crate::tetrimino::{Tetrimino, TetriminoType};
 
 pub struct GameState {
     pub board: Board,
-    pub current_piece: Option<Tetromino>,
+    pub current_piece: Option<Tetrimino>,
     pub held_piece: Option<TetriminoType>,
     pub next_pieces: Vec<TetriminoType>,
     pub score: u64,
@@ -31,7 +31,7 @@ impl GameState {
 
     pub fn spawn_piece(&mut self) {
         // TODO: Implement piece bag randomization
-        let piece = Tetromino::new(TetriminoType::T);
+        let piece = Tetrimino::new(TetriminoType::T);
         self.current_piece = Some(piece);
     }
 
@@ -101,7 +101,7 @@ impl GameState {
 
         if let Some(current) = self.current_piece.take() {
             if let Some(held) = self.held_piece {
-                let new_piece = Tetromino::new(held);
+                let new_piece = Tetrimino::new(held);
                 self.current_piece = Some(new_piece);
             } else {
                 self.spawn_piece();

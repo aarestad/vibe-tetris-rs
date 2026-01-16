@@ -1,17 +1,23 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TetriminoType {
-    I, O, T, S, Z, J, L
+    I,
+    O,
+    T,
+    S,
+    Z,
+    J,
+    L,
 }
 
 #[derive(Debug, Clone)]
-pub struct Tetromino {
+pub struct Tetrimino {
     pub kind: TetriminoType,
     pub x: i32,
     pub y: i32,
     pub rotation: usize,
 }
 
-impl Tetromino {
+impl Tetrimino {
     pub fn new(kind: TetriminoType) -> Self {
         Self {
             kind,
@@ -28,6 +34,9 @@ impl Tetromino {
             (TetriminoType::I, 0) => vec![(0, 0), (1, 0), (2, 0), (3, 0)],
             (TetriminoType::O, _) => vec![(0, 0), (1, 0), (0, 1), (1, 1)],
             (TetriminoType::T, 0) => vec![(1, 0), (0, 1), (1, 1), (2, 1)],
+            (TetriminoType::T, 1) => vec![(1, 0), (1, 1), (2, 1), (1, 2)],
+            (TetriminoType::T, 2) => vec![(0, 1), (1, 1), (2, 1), (1, 2)],
+            (TetriminoType::T, 3) => vec![(1, 0), (0, 1), (1, 1), (1, 2)],
             // Add all rotation states for all pieces
             _ => vec![(0, 0), (1, 0), (2, 0), (1, 1)], // Placeholder
         }

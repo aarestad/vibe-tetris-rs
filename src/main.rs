@@ -1,10 +1,10 @@
-mod config;
-mod tetrimino;
 mod board;
-mod game_state;
-mod ui;
-mod input;
+mod config;
 mod game;
+mod game_state;
+mod input;
+mod tetrimino;
+mod ui;
 
 use crate::config::GameConfig;
 use crate::game::Game;
