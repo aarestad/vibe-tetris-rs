@@ -1,7 +1,3 @@
-// ============================================================================
-// Game Loop
-// ============================================================================
-
 use crate::config::GameConfig;
 use crate::game_state::GameState;
 use crate::input::{InputAction, InputHandler};
