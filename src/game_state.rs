@@ -15,21 +15,26 @@ pub struct GameState {
     pub game_over: bool,
     pub config: GameConfig,
     bag: Vec<TetriminoType>,
+    pub lines_until_next_level: u32,
 }
 
 impl GameState {
     pub fn new(config: GameConfig) -> Self {
+        let starting_level = config.starting_level;
+        let lines_until_next_level = config.lines_per_level;
+
         let mut game_state = Self {
             board: Board::new(config.board_width, config.board_height),
             current_piece: None,
             held_piece: None,
             next_pieces: Vec::new(),
             score: 0,
-            level: config.starting_level,
+            level: starting_level,
             lines_cleared: 0,
             game_over: false,
             config,
             bag: Vec::new(),
+            lines_until_next_level,
         };
 
         // Initialize the first bag and next pieces
@@ -151,15 +156,99 @@ impl GameState {
     }
 
     fn update_score(&mut self, lines: u32) {
-        // Simple scoring system
-        let base_score = match lines {
+        if lines == 0 {
+            return;
+        }
+
+        // Check for T-Spin detection
+        let is_tspin = self.check_tspin();
+
+        // Calculate awarded line clears
+        let awarded_lines = self.compute_awarded_lines(lines, is_tspin);
+
+        // Apply score based on awarded lines and T-Spin
+        let base_score = match awarded_lines {
             1 => 100,
             2 => 300,
             3 => 500,
             4 => 800,
             _ => 0,
         };
-        self.score += base_score * self.level as u64;
+
+        // Apply T-Spin bonus multiplier
+        let tspin_bonus = if is_tspin {
+            match awarded_lines {
+                1 => 800,
+                2 => 1200,
+                3 => 1600,
+                4 => 2000,
+                _ => 0,
+            }
+        } else {
+            0
+        };
+
+        self.score += (base_score + tspin_bonus) * self.level as u64;
+
+        // Update level based on Fixed Goal System
+        self.update_level_fixed_goal(lines);
+
+        // Placeholder for Variable Goal System
+        // self.update_level_variable_goal(lines);
+    }
+
+    fn compute_awarded_lines(&self, cleared_lines: u32, is_tspin: bool) -> u32 {
+        if is_tspin {
+            match cleared_lines {
+                0 => 0,
+                1 => 1,
+                2 => 2,
+                3 => 3,
+                _ => cleared_lines,
+            }
+        } else {
+            cleared_lines
+        }
+    }
+
+    fn check_tspin(&self) -> bool {
+        // Placeholder for T-Spin detection
+        // This will be implemented to detect:
+        // - Mini T-Spins (1-2 lines)
+        // - Regular T-Spins (3 lines)
+        // - T-Spin Doubles (2 lines with proper rotation)
+        // - T-Spin Triples (3 lines with proper rotation)
+        //
+        // Detection will check:
+        // - Last move was a rotation
+        // - T piece is the current piece
+        // - T piece has 3 corners occupied by blocks
+        // - T-Spin zone is filled appropriately
+        false
+    }
+
+    fn update_level_fixed_goal(&mut self, lines_cleared: u32) {
+        // Fixed Goal System: Advance level after clearing static number of lines
+        let lines_required = self.config.lines_per_level;
+
+        if lines_cleared >= self.lines_until_next_level {
+            let overflow = lines_cleared - self.lines_until_next_level;
+            self.lines_until_next_level = lines_required - overflow;
+            self.level += 1;
+        } else {
+            self.lines_until_next_level -= lines_cleared;
+        }
+    }
+
+    fn update_level_variable_goal(&mut self, _lines_cleared: u32) {
+        // Placeholder for Variable Goal System from Tetris Design Guidelines
+        // This system will adjust level requirements based on:
+        // - Number of pieces placed
+        // - Combo multipliers
+        // - Back-to-back bonuses
+        // - Performance metrics
+        //
+        // TODO: Implement variable goal system based on Tetris Design Guidelines
     }
 
     fn refill_bag(&mut self) {
