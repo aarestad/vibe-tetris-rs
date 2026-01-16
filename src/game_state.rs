@@ -74,7 +74,7 @@ impl GameState {
     }
 
     pub fn rotate_piece(&mut self, clockwise: bool) {
-        if let Some(_) = self.current_piece.as_ref().map(|p| p.kind) {
+        if self.current_piece.as_ref().map(|p| p.kind).is_some() {
             let old_rotation;
             let old_x;
             let old_y;
@@ -103,7 +103,7 @@ impl GameState {
             // Check if basic rotation works
             if !self
                 .board
-                .is_valid_position(&self.current_piece.as_ref().unwrap())
+                .is_valid_position(self.current_piece.as_ref().unwrap())
             {
                 let kicks = self.get_wall_kicks(piece_type, old_rotation, new_rotation, clockwise);
                 let mut kicked = false;
@@ -117,7 +117,7 @@ impl GameState {
 
                     if self
                         .board
-                        .is_valid_position(&self.current_piece.as_ref().unwrap())
+                        .is_valid_position(self.current_piece.as_ref().unwrap())
                     {
                         kicked = true;
                         break;
