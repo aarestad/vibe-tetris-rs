@@ -1,135 +1,142 @@
-use crate::config::GameConfig;
 use crate::game_state::GameState;
 use crate::tetrimino::TetriminoType;
 use anyhow::Result;
-use crossterm::{
-    QueueableCommand,
-    cursor::{Hide, MoveTo},
-    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
-    terminal::{Clear, ClearType},
+use ratatui::{
+    Frame, Terminal,
+    backend::CrosstermBackend,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
-use std::io::{Write, stdout};
+use std::io::Stdout;
 
 pub struct Renderer {
-    config: GameConfig,
+    terminal: Terminal<CrosstermBackend<Stdout>>,
 }
 
 impl Renderer {
-    pub fn new(config: GameConfig) -> Self {
-        Self { config }
+    pub fn new() -> Result<Self> {
+        let backend = CrosstermBackend::new(std::io::stdout());
+        let terminal = Terminal::new(backend)?;
+        Ok(Self { terminal })
     }
 
-    pub fn render(&self, state: &GameState) -> Result<()> {
-        let mut stdout = stdout();
-
-        // Clear screen and hide cursor
-        stdout
-            .queue(Clear(ClearType::All))?
-            .queue(Hide)?
-            .queue(MoveTo(0, 0))?;
-
-        // Render game info
-        self.render_info(&mut stdout, state)?;
-
-        // Render board border
-        self.render_board_border(&mut stdout, state)?;
-
-        // Render board content
-        self.render_board_content(&mut stdout, state)?;
-
-        // Render next pieces
-        self.render_next_pieces(&mut stdout, state)?;
-
-        // Render held piece
-        self.render_held_piece(&mut stdout, state)?;
-
-        // Flush all queued commands
-        stdout.flush()?;
-
+    pub fn render(&mut self, state: &GameState) -> Result<()> {
+        self.terminal.draw(|f| Self::draw_game(f, state))?;
         Ok(())
     }
 
-    fn render_info(&self, stdout: &mut std::io::Stdout, state: &GameState) -> Result<()> {
-        stdout
-            .queue(SetForegroundColor(Color::Cyan))?
-            .queue(Print(format!(
-                " SCORE: {:<8} LEVEL: {:<4} LINES: {:<4}\n",
-                state.score, state.level, state.lines_cleared
-            )))?
-            .queue(ResetColor)?;
+    fn draw_game(f: &mut Frame, state: &GameState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(1)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(state.board.get_height() as u16 + 2),
+            ])
+            .split(f.area());
 
-        Ok(())
+        let info_chunk = chunks[0];
+        let game_chunk = chunks[1];
+
+        let game_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(state.board.get_width() as u16 * 2 + 2),
+                Constraint::Min(0),
+            ])
+            .split(game_chunk);
+
+        let board_chunk = game_chunks[0];
+        let sidebar_chunk = game_chunks[1];
+
+        let sidebar_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(sidebar_chunk);
+
+        let next_chunk = sidebar_chunks[0];
+        let hold_chunk = sidebar_chunks[1];
+
+        Self::draw_info(f, info_chunk, state);
+        Self::draw_board(f, board_chunk, state);
+        Self::draw_next_pieces(f, next_chunk, state);
+        Self::draw_held_piece(f, hold_chunk, state);
     }
 
-    fn render_board_border(&self, stdout: &mut std::io::Stdout, state: &GameState) -> Result<()> {
+    fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
+        let info_text = vec![Line::from(vec![
+            Span::styled(" SCORE: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{:<8}", state.score),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled(" LEVEL: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{:<4}", state.level),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled(" LINES: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{:<4}", state.lines_cleared),
+                Style::default().fg(Color::White),
+            ),
+        ])];
+
+        let paragraph = Paragraph::new(info_text)
+            .alignment(Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+        f.render_widget(paragraph, area);
+    }
+
+    fn draw_board(f: &mut Frame, area: Rect, state: &GameState) {
         let board_width = state.board.get_width();
         let board_height = state.board.get_height();
-        let board_x = 2;
-        let board_y = 2;
 
-        // Top border
-        stdout
-            .queue(MoveTo(board_x as u16, board_y as u16))?
-            .queue(SetForegroundColor(Color::White))?
-            .queue(Print("┌"))?;
+        let mut board_lines = Vec::with_capacity(board_height);
 
-        for _ in 0..board_width {
-            stdout.queue(Print("─"))?;
-        }
-
-        stdout.queue(Print("┐\n"))?;
-
-        // Side borders (will be rendered with content)
         for y in 0..board_height {
-            stdout
-                .queue(MoveTo(board_x as u16, (board_y + 1 + y) as u16))?
-                .queue(Print("│"))?
-                .queue(MoveTo(
-                    (board_x + 1 + board_width) as u16,
-                    (board_y + 1 + y) as u16,
-                ))?
-                .queue(Print("│"))?;
-        }
+            let mut line_spans = Vec::with_capacity(board_width * 2 + 2);
 
-        // Bottom border
-        stdout
-            .queue(MoveTo(board_x as u16, (board_y + 1 + board_height) as u16))?
-            .queue(Print("└"))?;
+            line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
 
-        for _ in 0..board_width {
-            stdout.queue(Print("─"))?;
-        }
-
-        stdout.queue(Print("┘"))?.queue(ResetColor)?;
-
-        Ok(())
-    }
-
-    fn render_board_content(&self, stdout: &mut std::io::Stdout, state: &GameState) -> Result<()> {
-        let board_width = state.board.get_width();
-        let board_height = state.board.get_height();
-        let board_x = 3; // Inside border
-        let board_y = 3; // Inside border
-
-        // Create a combined view of board + current piece
-        for y in 0..board_height {
             for x in 0..board_width {
-                let cell_content = self.get_combined_cell(state, x, y);
-                let color = self.get_piece_color(cell_content);
+                let cell_content = Self::get_combined_cell(state, x, y);
+                let color = Self::get_piece_color(cell_content);
 
-                stdout
-                    .queue(MoveTo((board_x + x) as u16, (board_y + y) as u16))?
-                    .queue(SetBackgroundColor(color))?
-                    .queue(Print("  "))?
-                    .queue(ResetColor)?;
+                let block_str = "██";
+                line_spans.push(Span::styled(block_str, Style::default().fg(color)));
             }
+
+            line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
+            board_lines.push(Line::from(line_spans));
         }
 
-        Ok(())
+        let top_border = "┌".to_string() + &"─".repeat(board_width * 2) + "┐";
+        let bottom_border = "└".to_string() + &"─".repeat(board_width * 2) + "┘";
+
+        let mut full_lines = vec![Line::from(vec![Span::styled(
+            top_border,
+            Style::default().fg(Color::White),
+        )])];
+        full_lines.extend(board_lines);
+        full_lines.push(Line::from(vec![Span::styled(
+            bottom_border,
+            Style::default().fg(Color::White),
+        )]));
+
+        let paragraph = Paragraph::new(full_lines).alignment(Alignment::Center);
+
+        f.render_widget(paragraph, area);
     }
 
-    fn get_combined_cell(&self, state: &GameState, x: usize, y: usize) -> Option<TetriminoType> {
-        // Check if current piece occupies this position
+    fn get_combined_cell(state: &GameState, x: usize, y: usize) -> Option<TetriminoType> {
         if let Some(ref piece) = state.current_piece {
             for (dx, dy) in piece.get_blocks() {
                 let piece_x = (piece.x + dx) as usize;
@@ -140,11 +147,10 @@ impl Renderer {
             }
         }
 
-        // Otherwise, check the board
         state.board.get_cell(x, y)
     }
 
-    fn get_piece_color(&self, piece_type: Option<TetriminoType>) -> Color {
+    fn get_piece_color(piece_type: Option<TetriminoType>) -> Color {
         match piece_type {
             Some(TetriminoType::I) => Color::Cyan,
             Some(TetriminoType::O) => Color::Yellow,
@@ -152,102 +158,154 @@ impl Renderer {
             Some(TetriminoType::S) => Color::Green,
             Some(TetriminoType::Z) => Color::Red,
             Some(TetriminoType::J) => Color::Blue,
-            Some(TetriminoType::L) => Color::DarkYellow,
-            None => Color::Black,
+            Some(TetriminoType::L) => Color::Rgb(255, 140, 0),
+            None => Color::Reset,
         }
     }
 
-    fn render_next_pieces(&self, stdout: &mut std::io::Stdout, state: &GameState) -> Result<()> {
-        let next_x = state.board.get_width() + 8;
-        let next_y = 3;
+    fn draw_next_pieces(f: &mut Frame, area: Rect, state: &GameState) {
+        let mut lines = vec![
+            Line::from(Span::styled(
+                "NEXT",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+        ];
 
-        stdout
-            .queue(MoveTo(next_x as u16, next_y as u16))?
-            .queue(SetForegroundColor(Color::White))?
-            .queue(Print("NEXT:\n"))?;
-
-        // Show first 3 next pieces
         for (i, &piece_type) in state.next_pieces.iter().take(3).enumerate() {
-            let offset_y = next_y + 2 + (i * 4);
-            self.render_mini_piece(stdout, piece_type, next_x, offset_y)?;
+            if i > 0 {
+                lines.push(Line::from(""));
+                lines.push(Line::from(""));
+            }
+
+            let piece_lines = Self::get_piece_display(piece_type);
+            lines.extend(piece_lines);
         }
 
-        stdout.queue(ResetColor)?;
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
 
-        Ok(())
+        f.render_widget(paragraph, area);
     }
 
-    fn render_held_piece(&self, stdout: &mut std::io::Stdout, state: &GameState) -> Result<()> {
-        let hold_x = state.board.get_width() + 8;
-        let hold_y = 18;
-
-        stdout
-            .queue(MoveTo(hold_x as u16, hold_y as u16))?
-            .queue(SetForegroundColor(Color::White))?
-            .queue(Print("HOLD:\n"))?;
+    fn draw_held_piece(f: &mut Frame, area: Rect, state: &GameState) {
+        let mut lines = vec![
+            Line::from(Span::styled(
+                "HOLD",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+        ];
 
         if let Some(piece_type) = state.held_piece {
-            self.render_mini_piece(stdout, piece_type, hold_x, hold_y + 2)?;
+            let piece_lines = Self::get_piece_display(piece_type);
+            lines.extend(piece_lines);
+        } else {
+            lines.push(Line::from("  "));
+            lines.push(Line::from("  "));
+            lines.push(Line::from("  "));
+            lines.push(Line::from("  "));
         }
 
-        stdout.queue(ResetColor)?;
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
 
-        Ok(())
+        f.render_widget(paragraph, area);
     }
 
-    fn render_mini_piece(
-        &self,
-        stdout: &mut std::io::Stdout,
-        piece_type: TetriminoType,
-        x: usize,
-        y: usize,
-    ) -> Result<()> {
+    fn get_piece_display(piece_type: TetriminoType) -> Vec<Line<'static>> {
         let piece = crate::tetrimino::Tetrimino::new(piece_type);
-        let color = self.get_piece_color(Some(piece_type));
+        let blocks = piece.get_blocks();
+        let color = Self::get_piece_color(Some(piece_type));
 
-        for (dx, dy) in piece.get_blocks() {
-            let render_x = x + (dx as usize);
-            let render_y = y + (dy as usize);
+        let mut display = vec!["        ".to_string(); 4];
 
-            stdout
-                .queue(MoveTo(render_x as u16, render_y as u16))?
-                .queue(SetBackgroundColor(color))?
-                .queue(Print("  "))?
-                .queue(ResetColor)?;
+        for (dx, dy) in blocks {
+            let x = (dx + 1) as usize;
+            let y = (dy + 1) as usize;
+            if y < 4 {
+                let row = display.get_mut(y).unwrap();
+                let mut chars: Vec<char> = row.chars().collect();
+                if x * 2 < chars.len() {
+                    chars[x * 2] = '█';
+                    chars[x * 2 + 1] = '█';
+                    *row = chars.into_iter().collect();
+                }
+            }
         }
 
+        display
+            .into_iter()
+            .map(|s| Line::from(vec![Span::styled(s, Style::default().fg(color))]))
+            .collect()
+    }
+
+    pub fn render_pause(&mut self, state: &GameState) -> Result<()> {
+        self.terminal.draw(|f| {
+            Self::draw_game(f, state);
+
+            let pause_block = Block::default()
+                .title(" PAUSED ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+
+            let pause_area = Rect {
+                x: (f.area().width.saturating_sub(30)) / 2,
+                y: (f.area().height.saturating_sub(6)) / 2,
+                width: 30.min(f.area().width),
+                height: 6.min(f.area().height),
+            };
+
+            let pause_text = Paragraph::new(vec![
+                Line::from("").alignment(Alignment::Center),
+                Line::from("Press PAUSE again to resume").alignment(Alignment::Center),
+                Line::from("Press QUIT to exit game").alignment(Alignment::Center),
+            ])
+            .block(pause_block);
+
+            f.render_widget(pause_text, pause_area);
+        })?;
         Ok(())
     }
 
-    pub fn clear_screen(&self) -> Result<()> {
-        let mut stdout = stdout();
-        stdout
-            .queue(Clear(ClearType::All))?
-            .queue(MoveTo(0, 0))?
-            .flush()?;
+    pub fn render_game_over(&mut self, state: &GameState) -> Result<()> {
+        self.terminal.draw(|f| {
+            Self::draw_game(f, state);
 
-        Ok(())
-    }
+            let over_block = Block::default()
+                .title(" GAME OVER ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red));
 
-    pub fn render_pause(&self, state: &GameState) -> Result<()> {
-        self.render(state)?;
-        println!("\n=== PAUSED ===");
-        println!("Press PAUSE again to resume");
-        println!("Press QUIT to exit game");
-        println!("==============");
+            let over_area = Rect {
+                x: (f.area().width.saturating_sub(30)) / 2,
+                y: (f.area().height.saturating_sub(8)) / 2,
+                width: 30.min(f.area().width),
+                height: 8.min(f.area().height),
+            };
 
-        Ok(())
-    }
+            let over_text = Paragraph::new(vec![
+                Line::from("").alignment(Alignment::Center),
+                Line::from(format!("Final Score: {}", state.score)).alignment(Alignment::Center),
+                Line::from(format!("Level Reached: {}", state.level)).alignment(Alignment::Center),
+                Line::from(format!("Lines Cleared: {}", state.lines_cleared))
+                    .alignment(Alignment::Center),
+                Line::from("Press any key to exit").alignment(Alignment::Center),
+            ])
+            .block(over_block);
 
-    pub fn render_game_over(&self, state: &GameState) -> Result<()> {
-        self.clear_screen()?;
-        self.render(state)?;
-        println!("\n=== GAME OVER ===");
-        println!("Final Score: {}", state.score);
-        println!("Level Reached: {}", state.level);
-        println!("Lines Cleared: {}", state.lines_cleared);
-        println!("================");
-
+            f.render_widget(over_text, over_area);
+        })?;
         Ok(())
     }
 }

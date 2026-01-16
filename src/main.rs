@@ -6,9 +6,9 @@ mod input;
 mod tetrimino;
 mod ui;
 
-use std::path::PathBuf;
 use crate::config::GameConfig;
 use crate::game::Game;
+use std::path::PathBuf;
 
 use anyhow::Result;
 
@@ -17,10 +17,9 @@ fn main() -> Result<()> {
 
     // Example: Load custom config
     let config_path = PathBuf::from("tetris_config.json");
-    let config = GameConfig::load_from_file(&config_path)
-         .unwrap_or_else(|_| GameConfig::default());
+    let config = GameConfig::load_from_file(&config_path).unwrap_or_else(|_| GameConfig::default());
 
-    let mut game = Game::new(config);
+    let mut game = Game::new(config)?;
     game.run()?;
 
     Ok(())
