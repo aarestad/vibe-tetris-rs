@@ -74,17 +74,63 @@ impl GameState {
     }
 
     pub fn rotate_piece(&mut self, clockwise: bool) {
-        if let Some(ref mut piece) = self.current_piece {
-            let old_rotation = piece.rotation;
-            piece.rotation = if clockwise {
-                piece.rotation + 1
+        if let Some(_) = self.current_piece.as_ref().map(|p| p.kind) {
+            let old_rotation;
+            let old_x;
+            let old_y;
+            let piece_type;
+
+            {
+                let piece = self.current_piece.as_mut().unwrap();
+                old_rotation = piece.rotation;
+                old_x = piece.x;
+                old_y = piece.y;
+                piece_type = piece.kind;
+            }
+
+            let new_rotation = if clockwise {
+                old_rotation + 1
             } else {
-                piece.rotation.wrapping_sub(1)
+                old_rotation.wrapping_sub(1)
             };
 
-            if !self.board.is_valid_position(piece) {
-                // TODO: Implement wall kick system
-                piece.rotation = old_rotation;
+            // First try the basic rotation
+            {
+                let piece = self.current_piece.as_mut().unwrap();
+                piece.rotation = new_rotation;
+            }
+
+            // Check if basic rotation works
+            if !self
+                .board
+                .is_valid_position(&self.current_piece.as_ref().unwrap())
+            {
+                let kicks = self.get_wall_kicks(piece_type, old_rotation, new_rotation, clockwise);
+                let mut kicked = false;
+
+                for (dx, dy) in kicks {
+                    {
+                        let piece = self.current_piece.as_mut().unwrap();
+                        piece.x = old_x + dx;
+                        piece.y = old_y + dy;
+                    }
+
+                    if self
+                        .board
+                        .is_valid_position(&self.current_piece.as_ref().unwrap())
+                    {
+                        kicked = true;
+                        break;
+                    }
+                }
+
+                // If no wall kick worked, revert to original position
+                if !kicked {
+                    let piece = self.current_piece.as_mut().unwrap();
+                    piece.rotation = old_rotation;
+                    piece.x = old_x;
+                    piece.y = old_y;
+                }
             }
         }
     }
@@ -149,6 +195,51 @@ impl GameState {
                 self.refill_bag();
                 if let Some(piece) = self.bag.pop() {
                     self.next_pieces.push(piece);
+                }
+            }
+        }
+    }
+
+    fn get_wall_kicks(
+        &self,
+        piece_type: TetriminoType,
+        from_rotation: usize,
+        to_rotation: usize,
+        clockwise: bool,
+    ) -> Vec<(i32, i32)> {
+        // Super Rotation System wall kick tables
+        // Format: (dx, dy) offsets to try
+        match piece_type {
+            TetriminoType::I => {
+                // I piece has special wall kick data
+                match (from_rotation % 4, to_rotation % 4) {
+                    (0, 1) => vec![(0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)],
+                    (1, 0) => vec![(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
+                    (1, 2) => vec![(0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)],
+                    (2, 1) => vec![(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
+                    (2, 3) => vec![(0, 0), (2, 0), (-1, 0), (2, 1), (-1, -2)],
+                    (3, 2) => vec![(0, 0), (-2, 0), (1, 0), (-2, -1), (1, 2)],
+                    (3, 0) => vec![(0, 0), (1, 0), (-2, 0), (1, -2), (-2, 1)],
+                    (0, 3) => vec![(0, 0), (-1, 0), (2, 0), (-1, 2), (2, -1)],
+                    _ => vec![(0, 0)],
+                }
+            }
+            TetriminoType::O => {
+                // O piece doesn't rotate, but include for completeness
+                vec![(0, 0)]
+            }
+            _ => {
+                // Basic kicks for most pieces (J, L, S, Z, T)
+                match (from_rotation % 4, to_rotation % 4) {
+                    (0, 1) => vec![(0, 0), (0, -1), (-1, 0), (-1, -1)],
+                    (1, 0) => vec![(0, 0), (0, 1), (1, 0), (1, 1)],
+                    (1, 2) => vec![(0, 0), (0, -1), (1, 0), (1, -1)],
+                    (2, 1) => vec![(0, 0), (0, 1), (-1, 0), (-1, 1)],
+                    (2, 3) => vec![(0, 0), (0, -1), (-1, 0), (-1, -1)],
+                    (3, 2) => vec![(0, 0), (0, 1), (1, 0), (1, 1)],
+                    (3, 0) => vec![(0, 0), (0, -1), (1, 0), (1, -1)],
+                    (0, 3) => vec![(0, 0), (0, 1), (-1, 0), (-1, 1)],
+                    _ => vec![(0, 0)],
                 }
             }
         }
