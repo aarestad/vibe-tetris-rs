@@ -27,4 +27,22 @@ impl Renderer {
         // TODO: Use crossterm to clear screen
         print!("\x1B[2J\x1B[1;1H");
     }
+
+    pub fn render_pause(&self, state: &GameState) {
+        self.render(state);
+        println!("\n=== PAUSED ===");
+        println!("Press PAUSE again to resume");
+        println!("Press QUIT to exit game");
+        println!("==============");
+    }
+
+    pub fn render_game_over(&self, state: &GameState) {
+        self.clear_screen();
+        self.render(state);
+        println!("\n=== GAME OVER ===");
+        println!("Final Score: {}", state.score);
+        println!("Level Reached: {}", state.level);
+        println!("Lines Cleared: {}", state.lines_cleared);
+        println!("================");
+    }
 }

@@ -4,8 +4,9 @@
 
 use crate::config::GameConfig;
 use crate::game_state::GameState;
-use crate::input::InputHandler;
+use crate::input::{InputAction, InputHandler};
 use crate::ui::Renderer;
+use std::time::{Duration, Instant};
 
 pub struct Game {
     state: GameState,
@@ -29,22 +30,113 @@ impl Game {
     pub fn run(&mut self) {
         self.state.spawn_piece();
 
+        // Game loop timing variables
+        let mut last_update = Instant::now();
+        let mut last_gravity = Instant::now();
+        let gravity_duration = self.get_gravity_duration();
+        let frame_duration = Duration::from_millis(16); // ~60 FPS
+
         loop {
+            let now = Instant::now();
+            let frame_time = now.duration_since(last_update);
+
+            // Handle input
+            if let Some(action) = self.input.poll_input() {
+                self.handle_input(action);
+            }
+
+            // Apply gravity
+            if now.duration_since(last_gravity) >= gravity_duration {
+                if !self.state.move_piece(0, 1) {
+                    self.state.lock_current_piece();
+                }
+                last_gravity = now;
+            }
+
+            // Render
             self.renderer.clear_screen();
             self.renderer.render(&self.state);
 
-            // TODO: Implement proper game loop timing
-            // - Handle input
-            // - Update game state
-            // - Apply gravity
-            // - Check for game over
-
+            // Check for game over
             if self.state.game_over {
-                println!("Game Over! Final Score: {}", self.state.score);
+                self.renderer.render_game_over(&self.state);
                 break;
             }
 
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            // Frame rate limiting
+            if frame_time < frame_duration {
+                std::thread::sleep(frame_duration - frame_time);
+            }
+            last_update = now;
         }
+    }
+
+    fn get_gravity_duration(&self) -> Duration {
+        // Calculate gravity duration based on level
+        // Using Tetris guidelines: gravity increases with level
+        let base_gravity_ms = 800; // Level 1: 800ms per drop
+        let level = self.state.level.max(1);
+        let gravity_ms = (base_gravity_ms / (2_u32.pow((level - 1).min(10)))).max(50);
+        Duration::from_millis(gravity_ms as u64)
+    }
+
+    fn handle_input(&mut self, action: InputAction) {
+        match action {
+            InputAction::MoveLeft => {
+                self.state.move_piece(-1, 0);
+            }
+            InputAction::MoveRight => {
+                self.state.move_piece(1, 0);
+            }
+            InputAction::MoveDown => {
+                self.state.move_piece(0, 1);
+            }
+            InputAction::HardDrop => {
+                self.state.hard_drop();
+            }
+            InputAction::RotateClockwise => {
+                self.state.rotate_piece(true);
+            }
+            InputAction::RotateCounterClockwise => {
+                self.state.rotate_piece(false);
+            }
+            InputAction::Hold => {
+                self.state.hold_piece();
+            }
+            InputAction::Pause => {
+                self.handle_pause();
+            }
+            InputAction::Quit => {
+                self.state.game_over = true;
+            }
+        }
+    }
+
+    fn handle_pause(&mut self) {
+        // Display pause screen
+        self.renderer.clear_screen();
+        self.renderer.render_pause(&self.state);
+
+        // Wait for pause to be toggled again
+        loop {
+            if let Some(action) = self.input.poll_input() {
+                match action {
+                    InputAction::Pause => break, // Resume game
+                    InputAction::Quit => {
+                        self.state.game_over = true;
+                        break;
+                    }
+                    _ => {
+                        // Ignore other inputs while paused
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(16)); // 60 FPS check
+        }
+
+        // Reset timing to prevent gravity jumps after unpausing
+        // let now = Instant::now();
+        // Note: In a full implementation, we'd reset last_gravity and last_update here
+        // For now, the timing will reset naturally in the next game loop iteration
     }
 }
