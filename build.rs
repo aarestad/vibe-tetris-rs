@@ -96,10 +96,10 @@ fn create_placeholder_audio(dest: &Path) {
 }
 
 fn create_silent_wav() -> Vec<u8> {
-    // Minimal valid WAV file (44 bytes header + 1 second of silence at 8kHz mono 8-bit)
+    // Minimal valid WAV file (44 bytes header + 1 second of silence at 8kHz mono 16-bit)
     let sample_rate: usize = 8000;
     let num_samples = sample_rate; // 1 second
-    let data_size = num_samples; // 8-bit mono
+    let data_size = num_samples * 2; // 16-bit mono = 2 bytes per sample
     let file_size = 36 + data_size;
 
     let mut wav = Vec::with_capacity(44 + data_size);
@@ -115,16 +115,16 @@ fn create_silent_wav() -> Vec<u8> {
     wav.extend_from_slice(&(1u16).to_le_bytes()); // Audio format (PCM)
     wav.extend_from_slice(&(1u16).to_le_bytes()); // Num channels
     wav.extend_from_slice(&(sample_rate as u32).to_le_bytes()); // Sample rate
-    wav.extend_from_slice(&((sample_rate as u32) as u16).to_le_bytes()); // Byte rate
-    wav.extend_from_slice(&(1u16).to_le_bytes()); // Block align
-    wav.extend_from_slice(&(8u16).to_le_bytes()); // Bits per sample
+    wav.extend_from_slice(&((sample_rate * 2) as u32).to_le_bytes()); // Byte rate (sample_rate * bytes_per_sample)
+    wav.extend_from_slice(&(2u16).to_le_bytes()); // Block align (bytes per sample)
+    wav.extend_from_slice(&(16u16).to_le_bytes()); // Bits per sample
 
     // data chunk
     wav.extend_from_slice(b"data");
     wav.extend_from_slice(&(data_size as u32).to_le_bytes());
 
-    // Add silence (0x80 for 8-bit audio)
-    wav.extend_from_slice(&vec![0x80u8; num_samples]);
+    // Add silence (0x00 for 16-bit audio - signed samples, 0 is silence)
+    wav.extend_from_slice(&vec![0x00u8; data_size]);
 
     wav
 }
