@@ -1,0 +1,6309 @@
+M
+
+A
+
+R
+
+C
+
+H
+
+2009 Tetris Design
+Guideline
+®
+
+CONFIDENTIAL
+
+© 2009, Blue Planet Software, Inc.
+
+Table of Contents
+1. Introduction_ ____________________________________________________________ 1
+1.1 What is Tetris?___________________________________________________________ 1
+1.2 Why Tetris?______________________________________________________________ 1
+1.3 How to Play Tetris_ _____________________________________________________ 1
+1.4 Tetris Terminology_ ____________________________________________________ 1
+2. Basic Game Flowchart___________________________________________________ 3
+2.1 Legal Screen_ __________________________________________________________ 3
+2.2 Title Screen & Logo_____________________________________________________ 4
+2.2.1  Logo Placement & Size___________________________________________ 4
+2.3 Main Menu______________________________________________________________ 4
+2.3.1  Select Number of Players_ _______________________________________ 5
+2.3.2  Select Game Variation___________________________________________ 5
+2.3.3  Select Starting Level_____________________________________________ 5
+2.3.4  High Score Table_________________________________________________ 6
+2.4 New Game & Interface__________________________________________________ 6
+2.5 Options_________________________________________________________________ 7
+2.5.1  Next Queue_ ______________________________________________________ 7
+2.5.2  Hold Queue______________________________________________________ 7
+2.5.3  Ghost Piece_ _____________________________________________________ 7
+2.5.4  Lock Down_ _____________________________________________________ 8
+2.5.5  Background Music (BGM)_______________________________________ 8
+2.5.6  Sound Effects____________________________________________________ 8
+2.6 Help_____________________________________________________________________ 8
+3. Tetrimino Generation_____________________________________________________ 9
+3.1 Colored Tetriminos____________________________________________________ 9
+3.2 Monochrome Tetriminos_ _____________________________________________ 9
+3.3 Random Generation_ __________________________________________________ 9
+3.4 Starting Location & Orientation_______________________________________ 9
+4. Controls_________________________________________________________________ 11
+4.1 Table of Basic Controls_______________________________________________ 15
+
+© 2009, Blue Planet Software, Inc.
+
+Contents-I
+
+Table of Contents
+5. Tetrimino Manipulation_ ________________________________________________ 16
+5.1 Movement_____________________________________________________________ 16
+5.2 Auto-Repeat____________________________________________________________ 16
+5.3 Rotation_______________________________________________________________ 16
+5.4 Hard Drop_____________________________________________________________ 16
+5.5 Soft Drop_ ____________________________________________________________ 17
+5.6 Hold___________________________________________________________________ 17
+5.7 Extended Placement Lock Down______________________________________ 17
+5.8 Infinite Placement Lock Down_ _______________________________________ 17
+5.9 Classic Lock Down_ __________________________________________________ 18
+6. Levels & Goals____________________________________________________________ 19
+6.1 Variable Goal System & Line Clears____________________________________ 19
+7. Fall & Drop Speeds_ ______________________________________________________ 20
+7.1 Drop Speeds___________________________________________________________ 20
+8. Scoring_ _________________________________________________________________ 21
+8.1 Back-to-Back Example_________________________________________________ 21
+9. T-Spins_____________________________________________________________________ 22
+9.1 Recognition_ _________________________________________________________ 22
+9.1.1  T-Spin_ ___________________________________________________________ 22
+9.1.2  Mini T-Spin_ ______________________________________________________ 22
+10. Game Over Conditions_________________________________________________ 26
+10.1 Game Over Condition Diagrams_____________________________________ 27
+11. Game Over Events_______________________________________________________ 28
+11.1 End Rewards _________________________________________________________ 28
+11.2 High Score Table_ ____________________________________________________ 28
+12. Main Tetris Variants____________________________________________________ 29
+12.1 Marathon____________________________________________________________ 29
+12.2 Sprint (Also Known as 40 Lines)______________________________________ 29
+12.3 Ultra_ ________________________________________________________________ 29
+
+Contents-II
+
+© 2009, Blue Planet Software, Inc.
+
+Table of Contents
+13. Visual/Sound Effects & Music_ ________________________________________ 30
+13.1 Visual Effects & Animation_ __________________________________________ 30
+13.1.1  Line Clear Effects______________________________________________ 30
+13.1.2  Hard Drop Trail________________________________________________ 30
+13.1.3  Lock Down_ ___________________________________________________ 30
+13.1.4  Background Graphics & Animations_________________________ 30
+13.1.5  Action Notifications_ _________________________________________ 30
+13.1.6  Pausing the Game______________________________________________ 30
+13.2 Sound Effects________________________________________________________ 31
+13.3 Background Music (BGM)_ __________________________________________ 31
+Appendix A The Tetris Engine ______________________________________________ 33
+A1.1 Tetris Engine Flowchart_ ____________________________________________ 33
+A1.2 Tetris Phases__________________________________________________________ 34
+A1.2.1  Generation Phase_ ____________________________________________ 34
+A1.2.2  Falling Phase__________________________________________________ 34
+A1.2.3  Lock Phase_ ___________________________________________________ 34
+A1.2.4  Pattern Phase__________________________________________________ 35
+A1.2.5  Iterate Phase___________________________________________________ 35
+A1.2.6  Animate Phase_ ________________________________________________ 35
+A1.2.7  Eliminate Phase_ _______________________________________________ 35
+A1.2.8  Completion Phase_____________________________________________ 35
+A1.3 Tetrimino Facings____________________________________________________ 36
+A1.4 Super Rotation System________________________________________________ 36
+A1.4.1  Objectives_ ____________________________________________________ 37
+A1.4.2  Super Rotation Diagrams_ ____________________________________ 37
+Appendix B Multiplayer____________________________________________________ 79
+B1.1 Introduction_ _______________________________________________________ 79
+B1.1.1  What is Tetris Multiplayer?_ ____________________________________ 79
+B1.1.2  Tetris Multiplayer Terminology________________________________ 79
+B1.2 Game Types_ __________________________________________________________ 80
+B1.2.1  Competitive Tetris Multiplayer__________________________________ 80
+B1.2.2  Cooperative Tetris Multiplayer_ _______________________________ 80
+B1.2.3  Practice Mode_________________________________________________ 81
+
+© 2009, Blue Planet Software, Inc.
+
+Contents-III
+
+Table of Contents
+B1.3 Line Attack System____________________________________________________ 81
+B1.3.1  Broken and Solid Lines_ _______________________________________ 81
+B1.3.2  Gap Randomness in Broken Lines______________________________ 81
+B1.3.3  Receiving Queue_ ______________________________________________ 81
+B1.3.4  Counter Attacks_______________________________________________ 81
+B1.3.5  Table of Line Attacks___________________________________________ 82
+B1.3.6  Table of Counter Attacks______________________________________ 82
+B1.4 User Interface________________________________________________________ 84
+B1.4.1  Game Screen___________________________________________________ 84
+14. Tetris Glossary_ ________________________________________________________ 85
+
+Contents-IV
+
+© 2009, Blue Planet Software, Inc.
+
+Introduction
+1. Introduction
+1.1 What is Tetris?
+Tetris® is an electronic puzzle game in which a player manipulates falling Tetriminos (shapes
+made from four connected squares) to neatly pack them into horizontal lines which are then
+removed from the Matrix to score points.
+
+1.2 Why Tetris?
+Tetris is one of the most widely played electronic games of all time. Deceptively simple,
+Tetris has defied all gender and age barriers worldwide and has helped shape the minds of
+the digital generation. Tetris has infiltrated nearly every computing device that has control
+buttons and a screen, from personal computers to dedicated game consoles, from Internetenabled mobile phones to dedicated hand-held game machines, from coin-operated arcade
+machines to interactive television, from personal digital assistants to in-flight entertainment
+systems. The game is quite simply, just that good.
+
+1.3 How to Play Tetris
+Tetris is a game satisfying one of the most basic human drives, that is, to create order out of
+chaos. There are seven differently shaped Tetriminos that fall into a rectangular Matrix. As
+Tetriminos fall, a player may rotate, move, or drop them into their final resting place. If a row or
+more of cells is completely filled with Blocks, then the line or lines are cleared from the Matrix
+and points are scored. The more efficiently a player clears lines from the Matrix (for example, in
+less time or using more simultaneous Line Clears) the better the player’s score will be. Bonuses
+are given for simultaneous Line Clears, special actions called “T-Spins”, and achieving Back-toBack high-point actions.
+
+1.4 Tetris Terminology
+For a complete list of terms, refer to the Tetris Glossary.
+Back-to-Back: adj. describes two major bonus actions, such as two Tetrises, performed without
+a Single, Double, or Triple Line Clear occurring between them.
+Block: n. a single block locked in a cell in the Matrix. Also known as an existing Block.
+Block Out: n. the Game Over Condition that occurs when part of a newly-generated Tetrimino
+is blocked due to an existing Block in the Matrix.
+Buffer Zone: n. a 10-cell wide x 20-cell high invisible area above the Matrix used to detect Lock
+Out, Block Out, and Top Out Game Over Conditions.
+Line Clear: n. when a horizontal row is completely filled with Blocks, it is removed from the
+Matrix and is called a Line Clear. All pieces above the Line Clear shift down to fill the space.
+Most Tetris variations award scoring or other bonuses for the number of lines cleared at one
+time. These are known as “Line Clear Bonuses”.
+Lock Down: n. the point at which a Tetrimino in play can no longer be manipulated by the
+player. This generally occurs 0.5 seconds after a Tetrimino lands on a Surface.
+Lock Out: n. the Game Over Condition occurring when a Tetrimino Locks Down completely
+above the Skyline.
+Matrix (may-trix): n. the rectangular arrangement of cells creating the active game area,
+usually 10 columns wide by 20 rows high. Tetriminos fall from the top-middle just above the
+Skyline (off-screen) to the bottom.
+© 2009, Blue Planet Software, Inc.
+
+Page 1 of 90
+
+Tetris® Design Guideline
+March, 2009
+Mino (mee-noh): n. a single square-shaped building block of a shape called a Tetrimino. Four
+Minos arranged into any of their various connected patterns is known as a Tetrimino.
+Skyline: n. the horizontal line at the top of the Matrix. Tetriminos fall from the middle of the
+Matrix just above the Skyline.
+Tetriminos (tetri-mee-nohs): n. geometric Tetris® shape formed by four Minos connected along
+their sides. A total of seven possible Tetriminos can be made using four Minos, each represented
+by a unique color.
+
+O-Tetrimino: yellow; a square shape; four blocks in a 2×2 square.
+I-Tetrimino: light blue; shaped like a capital I; four blocks in a straight line.
+T-Tetrimino: purple; shaped like a capital T; a row of three blocks with one added
+above the center.
+L-Tetrimino: orange; shaped like a capital L; a row of three blocks with one added
+above the right side.
+J-Tetrimino: dark blue; shaped like a capital J; a row of three blocks with one added
+above the left side.
+S-Tetrimino: green; shaped like a capital S; two stacked horizontal dominoes with the
+top one offset to the right.
+Z-Tetrimino: red; shaped like a capital Z; two stacked horizontal dominoes with the top
+one offset to the left.
+Tetris® (tet-ris): n. the result of using a vertical I-Tetrimino to clear four lines at the same time, the
+maximum possible, for a large scoring bonus. The plural form is Tetrises (for example, Back-toBack Tetrises).
+Top Out: n. the Game Over Condition occurring when the player receiving New Blocks Lines
+forces that player’s existing Blocks to reach to the top of the Buffer Zone and past the Top
+Out Line.
+Top Out Line: n. the ceiling of the Buffer Zone, 20 rows above the Skyline. This is the absolute
+topmost line in Tetris.
+T-Slot: n. any Block formation such that when the T-Tetrimino is spun into it, any three of the four
+cells diagonally adjacent to the center of the T-Tetrimino are occupied by existing Blocks.
+T-Spin: n. this action can be achieved by first landing a T-Tetrimino, and before it Locks Down,
+rotating it in a T-Slot.
+
+Page 2 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Basic Game Flowchart
+2. Basic Game Flowchart
+
+Power
+On
+
+Legal
+Screen
+
+Title
+Screen
+
+Main
+Menu
+New
+Game
+
+Help
+Select # of
+Players
+
+Options
+Select Game
+Variation
+
+Select Start
+Level
+
+Begin
+Game
+
+2.1 Legal Screen
+This screen must display the legal notice for the Tetris game. See the Legal section in the Tetris
+Marketing Guideline for more information.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 3 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+2.2 Title Screen & Logo
+The Tetris logo is comprised of two parts: 1) the “T” and 2) the “Font”.
+Blue Planet Software provides a color EPS file of the Tetris logo online. The logo can be used only
+in the approved sizes, proportions, and colors. A ® symbol must be placed next to the top right
+corner of the logo as illustrated below. In addition, the font must be proportional to the “T” as
+seen in the image below.
+
+For more information about proper usage of the Tetris logo, refer to the Tetris
+Marketing Guideline.
+
+2.2.1  Logo Placement & Size
+Placement: on title, legal, or splash screens, the logo must be centered horizontally on the
+screen. Vertically, it must be at least as high as the center of the screen, and not be directly
+touching the top of the screen.
+Size: for small screens (non-TV or monitors), especially vertically oriented ones, the width of the
+logo must take up at least 2/3 of the width of the screen. On 4:3 aspect screens, the width
+should be at least 1/2 of the width of the screen. On widescreens, it should be at least 1/3 of
+the width of the screen.
+
+2.3 Main Menu
+At the Main Menu, the player may select the number of players, the game variation, and
+the starting level. The player may access the High Score Table and Help. The player may also
+customize various other settings, such as the basic key configuration and sounds.
+
+Page 4 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Basic Game Flowchart
+2.3.1  Select Number of Players
+Many Tetris products allow multiplayer game play. The number of supported players
+corresponds to the size of the common viewing screen. The screen must be able to show a
+Matrix, Hold Queue, and Next Queue for each player. The basic multiplayer screen layouts are
+as follows:
+
+PLAYER 1
+SCORE:
+1234567890
+TIME:
+00:37.25
+
+SCORE:
+1234567890
+TIME:
+00:37.25
+LINES:
+LEVEL:
+GOAL:
+
+10
+10
+04
+
+LINES:
+LEVEL:
+GOAL:
+
+SCORE:
+1234567890
+TIME:
+00:37.25
+
+10
+10
+04
+
+LINES:
+LEVEL:
+GOAL:
+
+TETRISES:
+03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+TETRISES:
+03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+PLAYER 1
+
+Two-Player Screen
+
+PLAYER 2
+SCORE:
+1234567890
+TIME:
+00:37.25
+
+SCORE:
+1234567890
+TIME:
+00:37.25
+10
+10
+04
+
+LINES:
+LEVEL:
+GOAL:
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+10
+10
+04
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+PLAYER 1
+
+PLAYER 2
+
+SCORE:
+1234567890
+TIME:
+00:37.25
+LINES:
+LEVEL:
+GOAL:
+
+SCORE:
+1234567890
+TIME:
+00:37.25
+
+10
+10
+04
+
+LINES:
+LEVEL:
+GOAL:
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+LINES:
+LEVEL:
+GOAL:
+
+10
+10
+04
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+Three-Player Screen
+
+10
+10
+04
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+PLAYER 3
+SCORE:
+1234567890
+TIME:
+00:37.25
+
+10
+10
+04
+
+TETRISES:
+03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+Single Player Screen
+
+LINES:
+LEVEL:
+GOAL:
+
+PLAYER 2
+
+PLAYER 3
+SCORE:
+1234567890
+TIME:
+00:37.25
+LINES:
+LEVEL:
+GOAL:
+
+10
+10
+04
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+PLAYER 4
+SCORE:
+1234567890
+TIME:
+00:37.25
+LINES:
+LEVEL:
+GOAL:
+
+10
+10
+04
+
+TETRISES: 03
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+Four-Player Screen
+
+2.3.2  Select Game Variation
+The default is Marathon Tetris. See the Main Tetris Variants section for more information.
+
+2.3.3  Select Starting Level
+Typically, levels range from 1 to 15. Depending on the Tetris product, the player may have the
+option of starting at any one of these levels. The default is level 1.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 5 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+2.3.4  High Score Table
+Unless the hardware does not allow it, the player should have access to the High Score Table.
+See the Game Over Events section for information on what is included.
+
+2.4 New Game & Interface
+1
+
+2
+
+8
+3
+
+SCORE:
+
+1234567890
+
+TIME:
+
+00:37.25
+
+7
+
+LINES:
+LEVEL:
+GOAL:
+
+10
+10
+04
+
+4
+
+03
+TETRISES:
+T-SPINS:
+00
+COMBOS: 00
+TPM:
+159
+LPM:
+67
+
+6
+
+5
+
+1.  The Matrix
+The Matrix is the area where game play occurs. Standard Matrix dimensions are 20 cells high by
+10 cells wide.
+2.  Tetrimino in Play
+The player can manipulate this Tetrimino by moving it right or left, rotating it clockwise or
+counterclockwise, and Hard or Soft Dropping it. Hard Dropping results in the Tetrimino instantly
+dropping straight down and Locking Down on the first Surface on which it lands. Soft Dropping
+drops the Tetrimino 20 times faster than the current Fall Speed until the button is released.
+3.  Next Queue
+The Next Queue allows the player to see the Next Tetrimino that will be generated and put into
+play. It should be located near the top-right of the Matrix. Ideally, the next six Tetriminos should
+be visible in this queue, but this can vary anywhere from one to six. The queue can be vertical
+or horizontal, where the Next Tetrimino to enter the Matrix is closest to the top of the Matrix. The
+Tetriminos must have the following North Facing orientations in the Next Queue:
+
+Page 6 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Basic Game Flowchart
+If animation is provided for Tetriminos in the Next Queue, first priority goes to them being very
+easy to distinguish in a player’s peripheral vision.
+4.  Ghost Piece
+The Ghost Piece is a copy of the Tetrimino in play and indicates to the player where the
+Tetrimino in play will come to rest if it is “dropped” from its current position. The Ghost Piece can
+appear as a Tetrimino outline or as a translucent “ghost” image of the Tetrimino. It first appears,
+always North Facing, at the moment of the generation of the Next Tetrimino.
+5.  Background Graphic
+The Background Graphic is the backdrop on which the screen elements appear. It gives the
+product character and polish. The background must not visually interfere with game play.
+6.  Starting Blocks
+With several Tetris product variations, the player can vary the number of rows of Starting Blocks
+that appear at the bottom of the Matrix at the start of a game.
+7.  Game Information
+Information relevant to the game being played is displayed on-screen. Possible fields are:
+• Game Type
+• Number of Lines Cleared / Number of Lines Left to Clear
+• Current Level
+• Time Elapsed / Time Remaining
+• Current Score
+• High Score
+• Player Name
+• Player Rank
+8.  Hold Queue
+The Hold Queue allows the player to “hold” a falling Tetrimino for as long as they wish. Holding
+a Tetrimino releases the Tetrimino already in the Hold Queue (if one exists). It is located near the
+top-left of the Matrix. The Tetriminos are always represented North Facing, just as in the
+Next Queue.
+
+2.5 Options
+2.5.1  Next Queue
+The Next Queue may be customized by setting the number of Tetriminos to appear in the
+queue. Sometimes this number is dependent on platform, but ranges from one to six.
+
+2.5.2  Hold Queue
+The Hold Queue may be turned on or off. The default must be set to on.
+
+2.5.3  Ghost Piece
+The Ghost Piece feature may be turned on or off. The default must be set to on.
+© 2009, Blue Planet Software, Inc.
+
+Page 7 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+2.5.4  Lock Down
+A Tetrimino that is Hard Dropped Locks Down immediately. However, if a Tetrimino naturally falls
+or Soft Drops onto a Surface, it is given 0.5 seconds on a Lock Down Timer before it actually
+Locks Down. Three rulesets—Infinite Placement, Extended, and Classic—dictate the conditions
+for Lock Down. The default is Extended Placement.
+
+2.5.5  Background Music (BGM)
+The background music may be turned on or off. The default must be set to on. The background
+music volume may be adjusted. The player may also select a soundtrack from a list, or select
+Random Play which will cycle through the songs between games or levels. For the list of songs,
+see the Background Music section under Visual/Sound Effects & Music.
+
+2.5.6  Sound Effects
+The sound effects may be turned on or off. The default must be set to on. The sound effect
+volume may be adjusted.
+
+2.6 Help
+The Help is used to teach the player how to play, the scoring system used, and to display other
+basic game play topics. Use the correct Tetris terminology in the Help. For example, do not
+refer to the Matrix as the “Grid” or a Tetrimino as a “Block”. Refer to the Tetris Glossary for the
+correct terminology.
+In many games, the Help contains a section for the game credits. See the In-Game and Game
+Manual Credits section in the Tetris Marketing Guideline for game credit requirements.
+
+Page 8 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Tetrimino Generation
+3. Tetrimino Generation
+Each Tetrimino is made up of four Minos. The size of a Mino is the same size as a Matrix cell.
+
+3.1 Colored Tetriminos
+The following is the standard color scheme for the seven Tetriminos:
+
+YELLOW
+
+LIGHT BLUE
+
+PURPLE
+
+ORANGE
+
+DARK BLUE
+
+GREEN
+
+RED
+
+3.2 Monochrome Tetriminos
+In versions that use monochrome screens, or when hardware limitations disallow all colors to be
+used, the Tetriminos should have distinct hues and patterns to differentiate themselves.
+
+3.3 Random Generation
+Tetris uses a “bag” system to determine the sequence of Tetriminos that appear during game
+play. This system allows for equal distribution among the seven Tetriminos.
+The seven different Tetriminos are placed into a virtual bag, then shuffled into a random order.
+This order is the sequence that the bag “feeds” the Next Queue. Every time a new Tetrimino is
+generated and starts its fall within the Matrix, the Tetrimino at the front of the line in the bag is
+placed at the end of the Next Queue, pushing all Tetriminos in the Next Queue forward by one.
+The bag is refilled and reshuffled once it is empty.
+
+3.4 Starting Location & Orientation
+Tetriminos are all generated North Facing (just as they appear in the Next Queue) on the 21st
+and 22nd rows, just above the Skyline. There are 10 cells across the Matrix, and every Tetrimino
+that is three Minos wide is generated on the 4th cell across and stretches to the 6th. This
+includes the T-Tetrimino, L-Tetrimino, J-Tetrimino, S-Tetrimino and Z-Tetrimino. The I-Tetrimino and
+O-Tetrimino are exactly centered at generation. The I-Tetrimino is generated on the 21st row
+(not 22nd), stretching from the 4th to 7th cells. The O-Tetrimino is generated on the 5th and
+6th cell.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 9 of 90
+
+Tetris® Design Guideline
+March, 2009
+As soon as a Tetrimino is generated, three things immediately happen: 1) the Tetrimino drops
+one row if no existing Block is in its path, 2) the player is able to move and rotate the Tetrimino,
+and 3) the Ghost Piece (if turned on) appears below, North Facing. If an existing Block is in the
+Tetrimino’s path, the Tetrimino does not drop one row immediately, however, a few pixels of the
+generated Tetrimino are shown (hardware permitting) to help the player manipulate it above
+the Skyline.
+
+Page 10 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Controls
+4. Controls
+The following are the default control schemes for various input devices. The player is allowed to
+change the control keys if the hardware permits it.
+
+Joystick
+Hold
+
+Hold
+Pause
+
+Hard Drop
+Move Left
+Soft Drop
+
+Rotate Clockwise
+SELECT
+
+START
+
+ANALOG
+
+Rotate Counterclockwise
+
+Move Right
+
+Keyboard
+Pause Pause
+Esc
+
+!
+
+~`
+Tab
+
+1
+
+Hold
+
+F1
+
+F2
+
+F3
+
+F4
+
+@
+
+#
+
+$
+
+%
+
+2
+
+Q
+
+W
+
+3
+
+4
+
+E
+
+R
+
+F5
+
+^
+
+5
+
+F6
+
+&
+
+6
+
+T
+
+Rotate
+Clockwise
+
+Hold
+
+*
+
+7
+
+Y
+
+F7
+
+(
+
+8
+
+U
+
+F8
+
+)
+
+9
+
+I
+
+F9
+
+_
+
+0
+
+O
+
+F10
+
++
+
+{
+
+P
+
+F11
+
+|
+
+=
+}
+
+[
+
+F12
+
+Prt
+
+Scr L
+
+Ins
+
+Home
+
+P Up
+
+Num
+
+/
+
+*
+
+Del
+
+End
+
+P Dn
+
+7
+
+8
+
+9
+
+Return
+
+4
+
+5
+
+6
+
+Shift
+
+1
+
+2
+
+3
+
+\
+
+]
+
+Brk
+
+-
+
++
+Caps
+
+Hold
+
+Shift
+
+A
+
+S
+Z
+
+D
+X
+
+F
+C
+
+G
+V
+
+H
+B
+
+J
+N
+
+K
+M
+
+:
+
+L
+<
+
+,
+
+>
+
+.
+
+“
+
+;
+?
+
+‘
+
+/
+
+Enter
+Ctrl
+
+Alt
+
+Space
+
+Hard
+Rotate Rotate
+Counter- Clockwise Drop
+clockwise
+
+© 2009, Blue Planet Software, Inc.
+
+Alt
+
+Rotate
+Counterclockwise
+
+Ctrl
+
+Move
+Left
+
+0
+
+Move
+Soft
+Drop Right
+
+.
+
+See Table
+of Basic
+Controls
+
+Page 11 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+Mobile Phone
+
+Tetrimino Movement
+
+Hard Drop
+Pause
+Move Left
+
+Move Left
+
+Page 12 of 90
+
+MENU
+
+Tetrimino Rotation
+
+Pause
+
+BACK
+
+MENU
+
+BACK
+
+Move Right
+1
+
+2 ABC
+
+3 DEF
+
+Soft Drop
+Hard Drop
+
+4 GHI
+
+5 JKL
+
+6 MNO
+
+Move Right
+
+7 PQRS
+
+8 TUV
+
+9 WXYZ
+
+Soft Drop
+
+* Shift
+
+0 Next
+
+# Space
+
+Hold
+
+Rotate
+Counterclockwise
+
+1
+
+2 ABC
+
+3 DEF
+
+4 GHI
+
+5 JKL
+
+6 MNO
+
+7 PQRS
+
+8 TUV
+
+9 WXYZ
+
+* Shift
+
+0 Next
+
+# Space
+
+Rotate
+Clockwise
+
+© 2009, Blue Planet Software, Inc.
+
+Controls
+
+Touch Screen (Tap and Drag)
+
+Tap the Hold Queue to hold
+the falling Tetrimino
+
+2247
+Tap the left side of the screen
+to rotate the Tetrimino counterclockwise
+
+Tap the right side of the
+screen to rotate the
+Tetrimino clockwise
+
+Drag left anywhere on the
+screen to move the Tetrimino
+left
+
+Drag right anywhere on the
+screen to move the Tetrimino
+right
+
+Drag down anywhere on the
+screen to start a Soft Drop.
+Continue pressing the screen
+to continue the Soft Drop.
+
+Flick down anywhere on
+the screen to Hard Drop the
+Tetrimino
+
+LEVEL
+
+1 GOAL 10
+
+When a Tetrimino generates,
+any tap to the left of Line
+A is considered a counterclockwise rotation; any
+tap to the right of Line A
+is considered a clockwise
+rotation.
+If the Tetrimino is rotated
+counter-clockwise, Line B
+is made the dividing line
+between counter-clockwise
+and clockwise rotations. This
+continues until the Tetrimino
+is rotated clockwise, at which
+time the dividing line moves
+back to Line A.
+At Lock Down, the dividing
+line is reset to Line A.
+
+© 2009, Blue Planet Software, Inc.
+
+AB
+
+LEVEL
+
+2247
+
+1 GOAL 10
+
+Page 13 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+Cable Remote
+
+Tetrimino Movement
+
+Tetrimino Rotation
+
+WE
+PO R
+
+WE
+PO R
+
+Hard Drop
+
+Move Left
+
+Move Right
+
+SELECT
+
+SELECT
+
+Rotate
+Clockwise
+Soft Drop
+Pause
+
+MUTE
+
+Move Left
+
+CHA
+
+VOL
+
+1
+
+2
+
+3
+
+Hard Drop
+
+4
+
+5
+
+6
+
+Move Right
+
+7
+
+8
+
+9
+
+Soft Drop
+
+*
+
+0
+
+#
+
+Hold
+
+RW
+
+PLAY
+
+PAUSE
+
+STOP
+
+Pause
+
+MUTE
+
+CHA
+
+VOL
+
+1
+
+2
+
+3
+
+4
+
+5
+
+6
+
+7
+
+8
+
+9
+
+*
+
+0
+
+#
+
+FF
+
+RW
+
+PLAY
+
+FF
+
+REC
+
+PAUSE
+
+STOP
+
+REC
+
+Rotate
+Counterclockwise
+
+Rotate
+Clockwise
+
+Note: If one of the designated control buttons is not present on a certain remote,
+use a button in the same area.
+
+Page 14 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Controls
+4.1 Table of Basic Controls
+Control Function
+
+Joystick
+
+Keyboard
+
+Mobile Phone/
+Cable Remote1
+
+Move Tetrimino LEFT
+
+Directional Pad
+LEFT
+
+LEFT Arrow,
+Numpad 4
+
+Directional Pad LEFT /
+Button 4
+
+Move Tetrimino RIGHT
+
+Directional Pad
+RIGHT
+
+RIGHT Arrow,
+Numpad 6
+
+Directional Pad RIGHT /
+Button 6
+
+Hard Drop
+
+Directional Pad
+UP
+
+Space Bar,
+Numpad 8
+
+Directional Pad UP /
+Button 2
+
+Soft Drop
+
+Directional Pad
+DOWN
+
+DOWN Arrow,
+Numpad 2
+
+Directional Pad DOWN /
+Button 8
+
+Rotate Tetrimino
+Clockwise
+
+Outer (Right)
+Button
+
+UP Arrow, X,
+Numpad 1, 5, 9
+
+Directional Pad OK2 or Select /
+Buttons 3, 5, 7, or #
+
+Rotate Tetrimino
+Counterclockwise
+
+Inner (Left) Button
+
+Control, Z,
+Numpad 3, 7
+
+Buttons 1, 9, or *
+
+Hold
+
+Button 3 /
+Shoulder Buttons
+
+Shift, C, Numpad
+0
+
+Button 0
+
+Pause Game
+
+Start / Select
+
+Escape, F1
+
+Extra or MENU Button /
+Channel Up
+
+Cable remote key/button availability may differ between remotes. In these situations, it
+is advisable to stick with this scheme as much as possible. Any necessary changes will be
+approved on an individual basis.
+1
+
+If there is no center OK button on a phone’s directional pad, then the UP button is used for
+Rotate Clockwise instead of Hard Drop (button 2 is used for Hard Drop).
+2
+
+© 2009, Blue Planet Software, Inc.
+
+Page 15 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+5. Tetrimino Manipulation
+Only one Tetrimino falls within the Matrix at any given time. The player can move, rotate, Soft
+Drop, Hard Drop, and Hold the falling Tetrimino (i.e., the Tetrimino in play). When the Tetrimino
+first lands on a Surface, there is a time limit before it Locks Down. The three Lock Down options
+are explained at the end of this section.
+
+5.1 Movement
+The Tetrimino in play falls from just above the Skyline one cell at a time, and moves left and
+right one cell at a time. Each Mino of a Tetrimino “snaps” to the appropriate cell position at the
+completion of a move, although intermediate Tetrimino movement appears smooth. Only right,
+left, and downward movement are allowed. Movement into occupied cells and Matrix walls
+and floors is not allowed.
+
+5.2 Auto-Repeat
+Tapping the move button allows a single cell movement of the Tetrimino in the direction
+pressed. Holding down the move button triggers an Auto-Repeat movement that allows the
+player to move a Tetrimino from one side of the Matrix to the other in about 0.5 seconds. This is
+essential on higher levels when the Fall Speed of a Tetrimino is very fast.
+There must be a slight delay between the time the move button is pressed and the time when
+Auto-Repeat kicks in, roughly 0.3 seconds. This delay prevents unwanted extra movement of a
+Tetrimino. Auto-Repeat only affects Left/Right movement. Auto-Repeat continues to the Next
+Tetrimino (after Lock Down) as long as the move button remains pressed.
+In addition, when Auto-Repeat begins, and the player then holds the opposite direction button,
+the Tetrimino must then begin moving the opposite direction with the initial delay. This mainly
+applies to devices with movement buttons—such as a keyboard or mobile phone—where more
+than one direction button is able to be pressed simultaneously. When any single button is then
+released, the Tetrimino should again move in the direction still held, with the Auto-Repeat delay
+of roughly 0.3 seconds applied once more.
+
+5.3 Rotation
+Tetriminos can rotate clockwise and counterclockwise using the Super Rotation System. This
+system allows Tetrimino rotation in situations that the original Classic Rotation System did not
+allow, such as rotating against walls. See the Super Rotation System section in Appendix A for
+more details.
+Each time a rotation button is pressed, the Tetrimino in play rotates 90 degrees in the clockwise
+or counterclockwise direction. Rotation can be performed while the Tetrimino is AutoRepeating left or right. There is no Auto-Repeat for rotation itself.
+
+5.4 Hard Drop
+The Hard Drop command instantly drops the Tetrimino and locks it down on the Surface directly
+below it. The time it takes for a Hard Dropped Tetrimino to fall from its current location to Lock
+Down is 0.0001 seconds. There is no Auto-Repeat for a Hard Drop.
+
+Page 16 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Tetrimino Manipulation
+5.5 Soft Drop
+When the Soft Drop command is pressed, the Tetrimino in play drops at a rate 20 times faster
+than the normal Fall Speed, measured in seconds per line. The Tetrimino resumes its normal
+Fall Speed once the Soft Drop button is released. For example, if the normal Fall Speed is 0.5
+seconds per line, then the Soft Drop speed is (0.5 / 20) = 0.025 seconds per line.
+Note that if the player Soft Drops a Tetrimino until it lands on a Surface, Lock Down does not
+occur until the Lock Down Timer hits zero.
+Press and hold the Soft Drop button to continue the downward movement. Soft Drop continues
+to the Next Tetrimino (after Lock Down) as long as the button remains pressed.
+
+5.6 Hold
+Using the Hold command places the Tetrimino in play into the Hold Queue. The previously
+held Tetrimino (if one exists) will then start falling from the top of the Matrix, beginning from its
+generation position and North Facing orientation. Only one Tetrimino may be held at a time.
+A Lock Down must take place between Holds. For example, at the beginning, the first Tetrimino
+is generated and begins to fall. The player decides to hold this Tetrimino. Immediately the Next
+Tetrimino is generated from the Next Queue and begins to fall. The player must first Lock Down
+this Tetrimino before holding another Tetrimino. In other words, you may not Hold the same
+Tetrimino more than once.
+
+5.7 Extended Placement Lock Down
+This is the default Lock Down setting in the Options menu. Multiplayer and Arcade variations of
+Tetris must use this type of Lock Down.
+Once the Tetrimino in play lands on a Surface in the Matrix, the Lock Down Timer starts counting
+down from 0.5 seconds. Once it hits zero, the Tetrimino Locks Down and the Next Tetrimino’s
+generation phase starts. The Lock Down Timer resets to 0.5 seconds if the player simply moves
+or rotates the Tetrimino. In Extended Placement, a Tetrimino gets 15 left/right movements or
+rotations before it Locks Down, regardless of the time left on the Lock Down Timer. However, if
+the Tetrimino falls one row below the lowest row yet reached, this counter is reset. In all other
+cases, it is not reset.
+
+Note: If a Tetrimino falls to its lowest line and then goes above this line, it will continue to use its
+15 movements/rotations. Once these movements/rotations have been used, the Lock Down
+Timer will not be reset and the Tetrimino will Lock Down immediately on the first Surface it
+touches. If it does not touch a Surface, it may be moved/rotated further. It will again receive a
+total of 15 movements/rotations it if falls to a line below the previous lowest line.
+
+5.8 Infinite Placement Lock Down
+Once the Tetrimino in play lands on a Surface in the Matrix, the Lock Down Timer starts counting
+down from 0.5 seconds. Once it hits zero, the Tetrimino Locks Down and the Next Tetrimino’s
+generation phase starts. However, the Lock Down Timer resets to 0.5 seconds if the player simply
+moves or rotates the Tetrimino. Thus, Infinite Placement allows the player to continue movement
+and rotation of a Tetrimino as long as there is an actual change in its position or orientation
+before the timer expires.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 17 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+5.9 Classic Lock Down
+Classic Lock Down rules apply if Infinite Placement and Extended Placement are turned off.
+Like Infinite Placement, the Lock Down Timer starts counting down from 0.5 seconds once the
+Tetrimino in play lands on a Surface. The y-coordinate of the Tetrimino must decrease (i.e., the
+Tetrimino falls further down in the Matrix) in order for the timer to be reset.
+
+Page 18 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Levels & Goals
+6. Levels & Goals
+Typical Tetris variants feature 15 levels of play (from 1 to 15). A Level Up occurs when the player
+clears the required number of lines per level, or the Goal.
+The current level affects both Fall Speed and scoring in Tetris (see next section). As levels
+advance, the Fall Speed increases, and more points are awarded for actions such as Line
+Clears and T-Spins.
+We recommend you choose the type of goal system that best suits the variant/platform. There
+are two listed in this guideline: the Fixed Goal System requires 10 lines each level through level
+15, and the Variable Goal System requires that the player clears 5 lines at level 1, 10 lines at
+level 2, 15 at level 3 and so on, adding an additional five lines to the Goal each level through
+15. Thus, with the Fixed Goal System, the player must clear 150 lines through level 15, whereas
+with the Variable Goal System of adding 5 lines per level, the player is required to clear 600 lines
+by level 15. This system also includes line bonuses to help speed up the game, as explained
+below.
+The player must also have the option of starting from any level by changing the starting level in
+the Main Menu. For the Fixed Goal System, for any starting level greater than one, the player’s
+Goal is equal to the total number of lines they would normally clear on their way prior to the
+current level, in addition to the current level’s normal Goal.
+
+Example: If the player begins on level 4, in order to advance to level 5 they are required to
+clear the 30 lines through level 3 plus the 10 lines through level 4, for a total of 40 lines, where
+they then reach level 5 with a Goal of 10. For Level > 1, Goal = 10 x Level for that level only.
+And, since scoring is dependent on level, starting at a higher level results in more total points at
+the end of the game.
+When starting from Level 2 or higher in the Variable Goal System: Goal = Level x 5. Thus players
+playing the entire game from level 1 through 15 will achieve the higher score on average.
+
+6.1 Variable Goal System & Line Clears
+To speed up the process of “clearing” 600 lines, in the Variable Goal System the number of Line
+Clears awarded for any action is directly based off the score of the action performed (score
+at level 1 / 100 = Total Line Clears), such as a T-Spin or Tetris. This also has the side benefit of
+motivating players to use higher scoring actions such as T-Spins and Tetrises. The following is a
+table of awarded Line Clears for the Variable Goal System:
+Action
+
+Awarded Line Clears
+
+Action
+
+Awarded Line Clears
+
+Single / Mini T-Spin
+
+1
+
+T-Spin Double
+
+12
+
+Mini T-Spin Single
+
+2
+
+T-Spin Triple
+
+16
+
+Double
+
+3
+
+Back-to-Back Bonus
+
+0.5 x Total Line Clears
+
+T-Spin
+
+4
+
+Triple
+
+5
+
+Tetris / T-Spin Single
+
+8
+
+© 2009, Blue Planet Software, Inc.
+
+Note: Normal Back-to-Back rules apply. See the
+table in the Scoring section for the list of Backto-Back actions.
+
+Page 19 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+7. Fall & Drop Speeds
+Normal Fall Speed of Tetriminos
+Level
+
+Fall Speed
+(seconds per line)
+
+1
+
+1.0
+
+2
+
+0.793
+
+3
+
+0.618
+
+4
+
+0.473
+
+5
+
+0.355
+
+6
+
+0.262
+
+7
+
+0.190
+
+8
+
+0.135
+
+9
+
+0.094
+
+10
+
+0.064
+
+11
+
+0.043
+
+12
+
+0.028
+
+13
+
+0.018
+
+14
+
+0.011
+
+15
+
+0.007
+
+Once a Tetrimino is generated, it immediately drops
+one row (if no existing Block is in its path). From here,
+it begins its descent to the bottom of the Matrix. The
+Tetrimino will fall at its normal Fall Speed whether or
+not it is being manipulated by the player. The normal
+Fall Speed is defined here to be the time it takes a
+Tetrimino to fall by one line. The current level of the
+game determines the normal Fall Speed using the
+following equation:
+
+(0.8 - ((level - 1) * 0.007)) (level-1)
+
+Approximate calculations of the Fall Speed for levels
+1 through 15 are shown in the table to the left.
+
+7.1 Drop Speeds
+The Soft Drop speed is suggested to be 20 times faster than the normal Fall Speed of the
+Tetrimino. The suggested Hard Drop speed is 0.0001 seconds.
+
+Page 20 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Scoring
+8. Scoring
+The player scores points by performing Single, Double, Triple, and Tetris Line Clears, as well as
+T-Spins and Mini T-Spins. Soft and Hard Drops also award points. There is a special bonus for
+Back-to-Backs, which is when two actions such as a Tetris and T-Spin Double (see complete
+list below) take place without a Single, Double, or Triple Line Clear occurring between them.
+Scoring for Line Clears, T-Spins, and Mini T-Spins are level dependent, while Hard and Soft Drop
+point values remain constant. Levels typically start at 1 and end at 15.
+
+Note: An added requirement for this year’s Tetris products is to include a demonstration within
+the actual application of all of the following point-scoring actions:
+Action
+
+Action Total
+
+Description
+
+Single
+
+100 x Level
+
+1 line of Blocks is cleared.
+
+Double
+
+300 x Level
+
+2 lines of Blocks are simultaneously cleared.
+
+Triple
+
+500 x Level
+
+3 lines of Blocks are simultaneously cleared.
+
+Tetris
+
+800 x Level
+
+4 lines of Blocks are simultaneously cleared.
+
+Mini T-Spin
+
+100 x Level
+
+An easier T-Spin with no Line Clear.
+
+Mini T-Spin Single
+
+200 x Level
+
+An easier T-Spin clearing 1 line of Blocks.
+
+T-Spin
+
+400 x Level
+
+T-Tetrimino is spun into a T-Slot with no Line Clear.
+
+T-Spin Single
+
+800 x Level
+
+T-Spin clearing 1 line of Blocks.
+
+T-Spin Double
+
+1200 x Level
+
+T-Spin simultaneously clearing 2 lines of 10 Blocks.
+
+T-Spin Triple
+
+1600 x Level
+
+T-Spin simultaneously clearing 3 lines of 10 Blocks.
+
+Back-to-Back Bonus 0.5 x Action Total
+
+Bonus for Tetrises, T-Spin Line Clears1, and Mini T-Spin
+Line Clears1 performed consecutively in a B2B
+sequence. See Back-to-Back Example for a better
+understanding.
+
+Soft Drop
+
+1xn
+
+Tetrimino is Soft Dropped for n lines
+
+Hard Drop
+
+2xm
+
+Tetrimino is Hard Dropped for m lines
+
+T-Spins and Mini T-Spins that do not clear any lines do not receive the Back-to-Back Bonus;
+instead they are scored as normal. They also cannot start a Back-to-Back sequence, however,
+they do not break an existing Back-to-Back sequence and so are included in the
+Back-to-Back description.
+1
+
+8.1 Back-to-Back Example
+The total number of points the player receives for achieving a Tetris, T-Spin Double, T-Spin, Tetris,
+and a T-Spin Single consecutively at Level 1 is:
+Tetris +
+
+T-Spin
+Double
+
++
+
+B2B
+Bonus
+
++
+
+T-Spin
+
++
+
+Tetris
+
++
+
+B2B
+Bonus
+
++
+
+T-Spin
+Single
+
++
+
+B2B
+Bonus
+
+=
+
+Total
+Score
+
+800
+
+( 1200
+
++
+
+600 )
+
++
+
+400
+
++
+
+( 800
+
++
+
+400 )
+
++
+
+( 800
+
++
+
+400 )
+
+=
+
+5400
+
++
+
+Note: The first Line Clear in the Back-to-Back sequence does not receive the Back-to-Back
+Bonus. Only consecutive qualifying Back-to-Back Line Clears after the first in the sequence
+receive the Back-to-Back Bonus.
+A Back-to-Back sequence is only broken by a Single, Double, or Triple Line Clear. Locking down
+a Tetrimino without clearing a line or holding a Tetrimino does not break the
+Back-to-Back sequence.
+© 2009, Blue Planet Software, Inc.
+
+Page 21 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+9. T-Spins
+A T-Spin or Mini T-Spin is a special rotation of the T-Tetrimino into a T-Slot, and when
+accomplished, awards a scoring or line bonus in most variants. A T-Slot is defined as any Block
+formation such that when the T-Tetrimino is spun in it, any three of the four cells diagonally
+adjacent to the center of the T-Tetrimino are occupied by existing Blocks. In order to be
+considered a T-Spin or Mini T-Spin, the T-Tetrimino must spin clockwise or counterclockwise first
+(it cannot merely be moved or dropped into a T-Slot). In addition to a scoring or other bonus,
+T-Spins and Mini T-Spins can also continue a Back-to-Back sequence.
+
+9.1 Recognition
+In the following diagrams, each letter corresponds to the side of a Mino in the T-Tetrimino:
+North
+
+East
+
+South
+
+West
+
+A
+
+B
+
+C
+
+A
+
+D
+
+C
+
+B
+
+D
+
+C
+
+D
+
+D
+
+B
+
+B
+
+A
+
+A
+
+C
+
+9.1.1  T-Spin
+A rotation is considered a T-Spin if any of the following conditions are met:
+• Sides A and B + (C or D) are touching a Surface when the Tetrimino Locks Down.
+• The T-Tetrimino fills a T-Slot completely with no holes.
+• Rotation Point 5 is used to rotate the Tetrimino into the T-Slot (see the Super Rotation
+System section in Appendix A). Any further rotation will be considered a T-Spin, not a
+Mini T-Spin.
+
+9.1.2  Mini T-Spin
+A rotation is considered a Mini T-Spin if either of the following conditions are met:
+• Sides C and D + (A or B) are touching a Surface when the Tetrimino Locks Down.
+• The T-Tetrimino creates holes in a T-Slot. However, if Rotation Point 5 was used to rotate
+the Tetrimino into the T-Slot, the rotation is considered a T-Spin (see previous section).
+The following are some examples of the types of T-Spins and Mini T-Spins in Tetris:
+T-Spin / E-S (Rotates Clockwise / Point 1)
+Matrix Layout
+
+Page 22 of 90
+
+Start Position
+
+End Position
+
+© 2009, Blue Planet Software, Inc.
+
+T-Spins
+
+T-Spin / S-W (Rotates Clockwise / Point 1)
+Matrix Layout
+
+Start Position
+
+End Position
+
+T-Spin / N-W (Rotates Counterclockwise / Point 5)
+Matrix Layout
+
+Start Position
+
+End Position
+
+T-Spin / N-E (Rotates Clockwise / Point 5)
+Matrix Layout
+
+Start Position
+
+End Position
+
+T-Spin Single / E-S (Rotates Clockwise / Point 1)
+Matrix Layout
+
+Start Position
+
+End Position
+
+T-Spin Single / N-W (Rotates Counterclockwise / Point 5)
+Matrix Layout
+
+© 2009, Blue Planet Software, Inc.
+
+Start Position
+
+End Position
+
+Page 23 of 90
+
+Tetris® Design Guideline
+March, 2009
+T-Spin Double / E-S (Rotates Clockwise / Point 1)
+Matrix Layout
+
+Start Position
+
+End Position
+
+T-Spin Double / N-W (Rotates Counterclockwise / Point 5)
+Matrix Layout
+
+Start Position
+
+End Position
+
+T-Spin Triple / N-E (Rotates Clockwise / Point 5)
+Matrix Layout
+
+Start Position
+
+End Position
+
+Mini T-Spin / N-E (Rotates Clockwise / Point 2)
+Matrix Layout
+
+Start Position
+
+End Position
+
+Mini T-Spin / N-E (Rotates Clockwise / Point 2)
+Matrix Layout
+
+Page 24 of 90
+
+Start Position
+
+End Position
+
+© 2009, Blue Planet Software, Inc.
+
+T-Spins
+
+Mini T-Spin / N-E (Rotates Clockwise / Point 2)
+Matrix Layout
+
+Start Position
+
+End Position
+
+Mini T-Spin Single / N-E (Rotates Clockwise / Point 2)
+Matrix Layout
+
+Start Position
+
+End Position
+
+Mini T-Spin Single / N-E (Rotates Clockwise / Point 2)
+Matrix Layout
+
+Start Position
+
+End Position
+
+Mini T-Spin / W-N (Rotates Clockwise / Point 3)
+Matrix Layout
+
+Start Position
+
+End Position
+
+Mini T-Spin Single / W-N (Rotates Clockwise / Point 3)
+Matrix Layout
+
+© 2009, Blue Planet Software, Inc.
+
+Start Position
+
+End Position
+
+Page 25 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+10. Game Over Conditions
+The following are the conditions which dictate the Game Over Condition:
+The player’s game is over when a Tetrimino Locks Out or Blocks Out, or when an existing Block
+Tops Out. This occurs when:
+a)  an opponent’s Line Attacks force existing Blocks past the top of the Buffer Zone
+(Top Out)
+b)  the player locks a whole Tetrimino down above the Skyline (Lock Out), or
+c)  one of the starting cells of the Next Tetrimino is blocked by an existing Block
+(Block Out).
+The Buffer Zone is an area above the Skyline that is another 20 rows high. There are seven
+general situations involving this Buffer Zone (each referring to a diagram on the next page):
+1.  Lock Down - Normal (Game Not Over)
+The Tetrimino in play Locks Down completely below the Skyline inside the Matrix. Most every
+Tetris game will be under this condition. This is not a Game Over Condition, and the
+game continues.
+2.  Lock Down - Peeking (Game Not Over)
+The Tetrimino in play Locks Down with at least one of its Blocks both below and above the
+Skyline. This is not a Game Over Condition, and the game continues.
+3.  Playing Above Skyline (Game Not Over)
+The player may move or rotate the Tetrimino in play above the Skyline, an imaginary line
+separating the Matrix from the Buffer Zone.
+4.  Existing Blocks Forced Up (Game Not Over)
+When existing Blocks are forced above the Skyline, but are still below the top of the Buffer Zone,
+it is not considered Game Over.
+5.  Top Out (Game Over)
+This Game Over Condition occurs when an opponent’s Line Attack forces your Blocks past the
+top of the 20-line Buffer Zone.
+It is highly unlikely that this will ever occur, since Lock Out (see #6) or Block Out (see #7) will likely
+occur before a Block ever gets pushed out of the Buffer Zone.
+6.  Lock Out (Game Over)
+This Game Over Condition occurs when a whole Tetrimino Locks Down above the Skyline.
+7.  Block Out (Game Over)
+This Game Over Condition occurs when part of a newly-generated Tetrimino is blocked due to
+an existing Block in the Matrix.
+
+Page 26 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Game Over Conditions
+10.1 Game Over Condition Diagrams
+
+BUFFER ZONE
+
+BUFFER ZONE
+
+BUFFER ZONE
+
+BUFFER ZONE
+
+1. Lock Down / Normal
+
+2. Lock Down / Peeking
+
+3. Playing Above Skyline
+
+4. Existing Blocks
+Forced Up
+
+BUFFER ZONE
+
+BUFFER ZONE
+
+BUFFER ZONE
+
+5. Top Out /
+Game Over
+
+6. Lock Out /
+Game Over
+
+7. Block Out /
+Game Over
+
+© 2009, Blue Planet Software, Inc.
+
+Page 27 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+11. Game Over Events
+When the platform allows, Game Over Events such as End Rewards or the High Score Table
+should be included if the player has done particularly well in the game.
+
+11.1 End Rewards
+When the player achieves an above average score, or attains a difficult to reach level, the
+player should be rewarded with a congratulatory message or screen including special graphic
+effects. This encourages both repeat play and player improvement.
+One example could be the number of fireworks displayed in the background being directly
+related to the player’s score.
+
+11.2 High Score Table
+At the end of the game, if a high score, level or time was achieved, the player should be
+able to enter their name or initials into the High Score Table. The High Score Table should then
+appear with the top players for each variant included. The table should include the player’s
+name, as well as level, score, or goal attained, the number of lines cleared, etc. Columns
+should be relevant to the Tetris variant.
+The High Score Table should be retained in memory and made accessible via the Main Menu.
+
+Page 28 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Main Tetris Variants
+12. Main Tetris Variants
+The three main Tetris variants are as follows: Marathon, Sprint, and Ultra. For information on
+other authorized variants, refer to the Tetris Variant Concepts.
+
+Note: Any Tetris game (which may include any number of variants) should have the name
+“Tetris” in front of it, in order to better catalogue and search for the name of the game. Variants
+within the game do not need the name Tetris in front of them.
+
+12.1 Marathon
+This is the traditional game of Tetris. Here, the player competes purely for points over 15 levels of
+play, at which point the game ends. Each Tetris variant using the Marathon method of game
+play has a specific Level Up condition.
+
+12.2 Sprint (Also Known as 40 Lines)
+The player chooses a starting level, and competes to clear a set number of lines (typically 40) in
+the shortest amount of time. The game ends when a Game Over Condition is met, or when the
+player clears the set number of lines. This game does not Level Up.
+
+12.3 Ultra
+The player’s objective is to a) score as many points, OR b) clear as many lines as possible within
+a two or three minute time span. The game ends when a Game Over Condition is met, or when
+the time limit expires. This game does not Level Up.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 29 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+13. Visual/Sound Effects & Music
+13.1 Visual Effects & Animation
+The following visual effects should be implemented in order to enhance the game
+play experience:
+
+13.1.1  Line Clear Effects
+When a line is cleared, a visual effect should illustrate the line completion and line removal. The
+more lines cleared at once, the more intense the visual effect.
+
+13.1.2  Hard Drop Trail
+If hardware permits, a translucent trailing shadow can follow the path of a Tetrimino that was
+just Hard Dropped. This helps the player visualize a Hard Drop.
+
+13.1.3  Lock Down
+A Tetrimino in play should change texture, darken, or flash when it Locks Down. A texture
+change or darkening should also differentiate all Locked Down Blocks with Tetriminos/Minos
+in play.
+
+13.1.4  Background Graphics & Animations
+Background graphics should not detract from game play in any way. Background graphics
+and animations should make clear a change in Level or impressive game maneuvers, such as a
+Tetris, T-Spin, or Back-to-Back.
+
+13.1.5  Action Notifications
+Actions such as Tetrises, T-Spins, T-Spin Singles/Doubles/Triples, Mini T-Spins, Mini T-Spin Singles,
+and Back-to-Backs should have a quick but aesthetically pleasing on-screen text notification of
+the action.
+The text should explicitly state the name of the action, for example: “T-Spin Single” or “Back-toBack T-Spin Double”. For Mini T-Spins, the text can indicate either “Mini T-Spin” or just “T-Spin”.
+Up to level 10, the notification may appear inside the Matrix. After level 10, the notification must
+appear somewhere in the user interface, outside of the Matrix.
+
+13.1.6  Pausing the Game
+Pressing the Pause button stops game play instantly and hides the Matrix, Next Queue, and
+Hold Queue contents. The word “Pause” should be prominently displayed on screen. Pressing
+the Pause button again resumes the game.
+
+Page 30 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Visual/Sound Effects & Music
+13.2 Sound Effects
+The minimum sound effect requirements are:
+• Tetrimino Rotation (clockwise and counterclockwise)
+• Tetrimino Movement (left and right)
+• Tetrimino Landing on a Surface or Touching a Wall/Object
+• Tetrimino Lock Down
+• Line Clear
+• Game Over
+Depending on hardware capabilities, the following actions should also have sound effects to
+enhance the game play experience:
+• Single Line Clear
+• Double Line Clear
+• Triple Line Clear
+• Tetris Line Clear
+• T-Spin, T-Spin Single, T-Spin Double, T-Spin Triple, Mini T-Spin, Mini T-Spin Single
+• Back-to-Back
+• Soft Drop
+• Hard Drop
+• Hold
+• Movement Failure (Blocked by obstacle)
+• Rotation Failure (Blocked by obstacle)
+• Level Up
+• Game Over
+• Other Variant Specific Actions (cascades, stickiness, avalanche, etc.)
+
+13.3 Background Music (BGM)
+The following Russian melody must be included in some arrangement and must be set as the
+default BGM.
+• Korobeiniki
+Other BGMs may be included for the player to select.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 31 of 90
+
+Appendix A The Tetris Engine
+Appendix A The Tetris Engine
+A1.1 Tetris Engine Flowchart
+Only one Tetrimino can be manipulated by the player at a time. In Tetris (not including variants),
+each Tetrimino that appears in the Matrix travels through eight phases in the Tetris Engine. In
+order, these phases are: Generation, Falling, Lock, Pattern, Iterate, Animate, Eliminate,
+and Completion.
+Generation
+Phase
+
+Falling
+Phase
+
+Hard Drop?
+
+YES
+
+NO
+Lock Phase
+
+NO
+
+Moved?
+YES
+
+YES
+
+Space to Fall?
+NO
+
+YES
+
+Reset
+Lock Down
+Timer?
+
+NO
+
+Pattern
+Phase
+
+Mark Block for YES
+Destruction
+
+Pattern
+Match?
+NO
+Iterate
+Phase
+
+Animate
+Phase
+
+Eliminate
+Phase
+YES
+Line Clear?
+NO
+Completion
+Phase
+
+© 2009, Blue Planet Software, Inc.
+
+Page 33 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+A1.2 Tetris Phases
+A1.2.1  Generation Phase
+Random Generation
+Tetris uses a “bag” system to determine the sequence of Tetriminos that appear during game
+play. This system allows for equal distribution among the seven Tetriminos.
+The seven different Tetriminos are placed into a virtual bag, then shuffled into a random order.
+This order is the sequence that the bag “feeds” the Next Queue. Every time a new Tetrimino is
+generated and starts its fall within the Matrix, the Tetrimino at the front of the line in the bag is
+placed at the end of the Next Queue, pushing all Tetriminos in the Next Queue forward by one.
+The bag is refilled and reshuffled once it is empty.
+
+Generation of Tetriminos
+The generation time of a Tetrimino is 0.2 seconds after the Lock Down of the previous Tetrimino.
+This slight delay happens as soon as the Completion Phase is finished. Generation time may
+change depending on the handling of the target platform.
+
+Starting Location and Orientation
+The bottom left corner of a 10 cell wide by 20 cell high Matrix is considered the origin, with the
+first cell being at x-coordinate 1 and y-coordinate 1: (1,1). The upper right cell of the Matrix is at
+(10, 20). Upon generation, the “center” Mino of the Tetrimino, i.e., Visual Rotation Point/Rotation
+Point #1 (see the Super Rotation System section in this appendix), occupies the cell with an
+x-coordinate of 5 and a y-coordinate of 21, which is in the first row above the Skyline.
+Tetriminos are all generated North Facing (just as they appear in the Next Queue) on the 21st
+and 22nd rows, just above the Skyline. Every Tetrimino that is three Minos wide is generated
+on the 4th cell across (4, 21) and stretches to the 6th (6, 21). This includes the T-Tetrimino,
+L-Tetrimino, J-Tetrimino, S-Tetrimino and Z-Tetrimino. The I-Tetrimino and O-Tetrimino are exactly
+centered horizontally at generation. The I-Tetrimino is generated on the 21st row (not 22nd),
+stretching from the 4th to 7th cells (4, 21) - (7, 21), and the O-Tetrimino is generated on the 5th
+and 6th cell (5, 21) - (6, 21).
+As soon as a Tetrimino is generated, three things immediately happen: 1) the Tetrimino drops
+one row if no existing Block is in its path, 2) the Tetrimino enters the Falling Phase where the
+player is able to move and rotate it, and 3) the Ghost Piece (if turned on) appears below,
+North Facing. If an existing Block is in the Tetrimino’s path, the Tetrimino does not drop one
+row immediately, however, a few pixels of the generated Tetrimino are shown (hardware
+permitting) to help the player manipulate it above the Skyline.
+
+A1.2.2  Falling Phase
+Throughout the Falling Phase, the player can move, rotate, Soft Drop, Hard Drop, and Hold a
+Tetrimino. The Tetrimino enters the Lock Phase once it lands on a Surface. For more information
+on Tetrimino Fall Speed, see the Fall & Drop Speeds section.
+
+A1.2.3  Lock Phase
+The player can perform the same actions on a Tetrimino in this phase as he/she can in the
+Falling Phase, as long as the Tetrimino is not yet Locked Down. A Tetrimino that is Hard Dropped
+Locks Down immediately. However, if a Tetrimino naturally falls or Soft Drops onto a landing
+Surface, it is given 0.5 seconds on a Lock Down Timer before it actually Locks Down.
+Page 34 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+Three rulesets—Infinite Placement, Extended, and Classic—dictate the conditions for Lock
+Down (see the Tetrimino Manipulation section).
+
+Note: Using the Super Rotation System, rotating a Tetrimino often causes the y-coordinate of the
+Tetrimino to increase, i.e., it “lifts up” off the Surface it landed on. The Lock Down Timer does not
+reset in this case, but it does stop counting down until the Tetrimino lands again on a Surface
+that has the same (or higher) y-coordinate as it did before it was rotated. Only if it lands on a
+Surface with a lower y-coordinate will the timer reset.
+If moving or rotating a Tetrimino causes it to fall again, it re-enters the Falling Phase. Once the
+Tetrimino is fully Locked Down, it enters the Pattern Phase.
+
+A1.2.4  Pattern Phase
+In this phase, the engine looks for patterns made from Locked Down Blocks in the Matrix. Once
+a pattern has been matched, it can trigger any number of Tetris variant-related effects.
+The classic pattern is the Line Clear pattern. This pattern is matched when one or more rows
+of 10 horizontally aligned Matrix cells are occupied by Blocks. The matching Blocks are then
+marked for removal on a hit list. Blocks on the hit list are cleared from the Matrix at a later time
+in the Eliminate Phase.
+This phase takes up no apparent game time.
+
+A1.2.5  Iterate Phase
+In this phase, the engine is given a chance to scan through all cells in the Matrix and evaluate
+or manipulate them according to an editor-defined iteration script. This phase consumes no
+apparent game time.
+
+Note: This phase is included in the engine to allow for more complicated variants in the future,
+and has thus far not been used.
+
+A1.2.6  Animate Phase
+Here, any animation scripts are executed within the Matrix. The Tetris Engine moves on to the
+Eliminate Phase once all animation scripts have been run.
+
+A1.2.7  Eliminate Phase
+Any Minos marked for removal, i.e., on the hit list, are cleared from the Matrix in this phase. If this
+results in one or more complete 10-cell rows in the Matrix becoming unoccupied by Minos, then
+all Minos above that row(s) collapse, or fall by the number of complete rows cleared from the
+Matrix. Points are awarded to the player according to the Tetris Scoring System, as seen in the
+Scoring section.
+
+Game Statistics
+Statistics such as the number of Singles, Doubles, Triples, Tetrises, and T-Spins can also be
+tracked in the Eliminate Phase. Ideally, some sort of High Score Table should record the player’s
+name, the highest level reached, his total score, and other statistics that can be tracked in
+this phase.
+
+A1.2.8  Completion Phase
+This is where any updates to information fields on the Tetris playfield are updated, such as the
+Score and Time. The Level Up condition is also checked to see if it is necessary to advance the
+game level.
+© 2009, Blue Planet Software, Inc.
+
+Page 35 of 90
+
+Tetris® Design Guideline
+March, 2009
+Whether the player Levels Up or not, control flows back into the Generation Phase of the
+Next Tetrimino.
+
+A1.3 Tetrimino Facings
+Each Tetrimino has a North, South, East, and West Facing. These facings are referred to
+extensively in the Super Rotation System section. Tetriminos are oriented in their North Facings
+when in the Next Queue, the Hold Queue, and when generated.
+Tetrimino
+
+North
+
+East
+
+South
+
+West
+
+O-Tetrimino
+
+I-Tetrimino
+
+T-Tetrimino
+
+L-Tetrimino
+
+J-Tetrimino
+
+S-Tetrimino
+
+Z-Tetrimino
+
+A1.4 Super Rotation System
+The Super Rotation System is the expanded Tetrimino control that allows players greater
+flexibility and freedom of movement. Tetris products in the past used a simple means of rotation,
+which caused strict limitations as to where Tetriminos could and could not be rotated.
+Page 36 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+For instance, if the I-Tetrimino was against a wall, and the player attempted to rotate it, the
+Tetrimino would not rotate because the resulting rotation would cause the Tetrimino to collide
+with the wall. If a Tetrimino with a flat bottom edge (e.g., the T-Tetrimino) landed on a flat
+surface or floor, it also could not be rotated. The Super Rotation System allows Tetrimino rotation
+in such cases.
+
+Classic Rotation System
+
+Super Rotation System
+
+Tetriminos cannot rotate against a wall
+or up off a Surface.
+
+Tetriminos can rotate against a wall or
+up off a Surface.
+
+The Super Rotation System allows players to rotate the Tetriminos in other situations where they
+were previously disallowed using Classic Rotation. The system prioritizes possible rotations using
+five rotation points for each Tetrimino. If a Tetrimino cannot be rotated into the first position,
+the game checks a second position by using the second rotation point. If the Tetrimino can
+be rotated into the second position, it will do so. Otherwise, it tries the third rotation point, and
+possibly a fourth and a fifth. Whichever rotation succeeds first is used; if all five rotations fail, the
+rotation cannot occur in that situation.
+The system is designed to be as intuitive as possible to the player. If the player presses rotate,
+the most intuitive, visual rotation is always used as long as no collision occurs. Subsequent
+rotations are less visually intuitive, but still rotate the Tetrimino as close as possible to a Tetrimino’s
+“natural” visual center of rotation.
+
+A1.4.1  Objectives
+• Provide a New Standard: Establish a new standard of rotation to be used for all future
+Tetris products.
+• Be Lenient: Allow the player to rotate a Tetrimino when it is against a wall, on the floor
+in a “Well”, or in other situations where Tetriminos could not rotate in older Tetris games.
+This results in a less frustrating and more enjoyable game.
+• Make Rotations Predictable: Make the system of rotations intuitive so that the player
+can easily predict the behavior of a Tetrimino when a button is pressed.
+• Preserve Backwards Compatibility to Older Tetris Products: Allow the Tetrimino to rotate
+as it does in previous Tetris games.
+
+A1.4.2  Super Rotation Diagrams
+Each Tetrimino has five possible rotation points. If the Tetrimino cannot rotate on the first point, it
+will try to rotate on the second. If it cannot rotate on the second, it will try the third and so on. If
+it cannot rotate on any of the points, then it cannot rotate.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 37 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+Specific Purposes for Each Rotation Point
+There are six general situations that the rotation points were designed for:
+A.	Visual: The first point of rotation is the visual center of the Tetrimino. This is where a player
+would expect a Tetrimino to rotate, and is the point of rotation used in most past Tetris
+products. If there is nothing obstructing the resulting Tetrimino position, the Tetrimino will
+rotate using
+this point.
+B.	Off the RIGHT Wall: Point 2 for all 3x2 Tetriminos and points 2 & 3 for the I-Tetrimino are
+designed to help rotation in situations where there is an obstruction at the side of a
+Tetrimino. It shifts the Tetrimino away from the obstruction, and then rotates the Tetrimino.
+C.	Off the LEFT Wall: same as B.
+D.	Off the FLOOR: Point 3 for 3x2 Tetriminos and points 4 & 5 for the I-Tetrimino allow rotation
+where there is an obstruction below the Tetrimino by shifting it up and then rotating it.
+E.	Out of a RIGHT Well: A vertical depression at the top of the “garbage” into which a
+Tetrimino can fall is called a Well. Super Rotation points 4 & 5 allow players to effectively
+rotate out of a Well.
+F.	Out of a LEFT Well: same as E.
+Depending on the position of a Tetrimino, the different rotation points will achieve the above
+purposes. These purposes are shown on the 5th and 6th (and 7th & 8th for the I-Tetrimino) pages
+of each Tetrimino’s set of pages. For example, for the S-Tetrimino, Point 2’s general purpose is
+rotation off walls. Using Point 2 in the East position, the S-Tetrimino will rotate off the Left wall if
+rotated in either direction. To see how the engine works, first try the S-Tetrimino’s Point 1 for the
+East start position. Imagine that there is a wall lined up on the left side of the Tetrimino. Both the
+left and right rotations will cause a collision into this wall. Thus, the engine then chooses Point 2.
+Because this rotation point results in shifting the Tetrimino over to the right, this point will succeed
+in rotating the S-Tetrimino Off the Wall, and the engine selects Point 2.
+To summarize,
+Point 1 is just the Visual Rotation, for all Start Positions, and for all Tetriminos (A).
+3x2 T-, L-, J-, S-, Z-Tetriminos
+Point 2 is designed for Off the Right/Left Wall rotations (B, C).
+Point 3 is for Off the Floor rotations (D).
+Point 4 is for rotation Out of a Right/Left Well, depending on the start position (E, F).
+Point 5 is the reverse of Point 4. It rotates Out of a Right/Left Well, depending on the start
+position (E, F).
+
+4x1 I-Tetrimino
+Point 2 is for Off the Right/Left Wall rotations (B, C).
+Point 3 is the reverse of Point 2. It is for Off the Right/Left Wall rotations (B, C).
+Point 4 is for Off the Floor rotations, and for rotation Out of a Right/Left Well (D, E, F).
+Point 5 is the reverse of Point 4. It is for Off the Floor rotations, and for rotation Out of a Right or
+Left Well (D, E, F).
+Page 38 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+2x2 “O” Tetrimino
+All rotation points for all start positions are the same. Thus, all rotations for this Tetrimino are
+Visual Rotations (A).
+
+How to View the Super Rotation Diagrams
+The following diagrams show single rotations in both the right (clockwise) and left (counterclockwise) directions for all seven Tetriminos in four possible start positions, using the five possible
+Super Rotation points. The O-Tetrimino will only ever rotate using its 1st rotation point. Since it
+has the same rotation points for all start positions, the diagrams for North, East, South and West
+starting orientations are combined into a single page.
+Each page shows rotations using the five different rotation points. There are six pages for the
+3x2 Tetriminos, and eight for the I-Tetrimino. The first page has the Tetrimino starting in its North
+Facing orientation, the next has it in its East Facing, then the South, and then the West. The last
+pages display the Primary Rotations, which are designed for situations such as Off the Wall, Off
+the Floor, and Out of a Well (see section on Specific Purposes for Each Rotation Point).
+Each Tetrimino is oriented somewhere inside a white box outlined in gray. The position of the
+white box remains constant so that it can be used to visualize the movement of the Tetrimino.
+The gray outline is the Tetrimino’s “Visual Rotation Bounding Box”. The Tetrimino will never jump
+outside the gray.
+The middle column of diagrams is the starting position of a Tetrimino. The left column of
+diagrams is the resulting position of rotating a Tetrimino left, or counterclockwise. The right
+column is the resulting position of rotating a Tetrimino right, or clockwise.
+The first row of diagrams should be used as a reference for each of the rotation points. The
+rotation points chosen for a particular situation is the first one of the five that works; Point 1 is the
+first point tried, and Point 5 is the last point tried.
+Certain rotation points are designed to have specific purposes. The Primary Rotation pages
+illustrate the situations for which these points are meant. The red areas designate obstructions
+such as walls, the floor, or other Tetriminos. The labels A through F next to various points on the
+first four pages refer to that point’s corresponding Primary Rotation diagram on the last pages.
+
+How to Use the Rotation Points
+In the process of choosing which rotation point to use, the engine first tries Point 1 of the
+Tetrimino in the middle column, top row of each page. Call this point Start-1. It then looks at
+Point 1 of the Tetrimino in the right or left column (depending on the rotation direction), top
+row of the same page. Call this point End-1. It will attempt the rotation by shifting the right/
+left column, top row Tetrimino so that End-1 matches up with Start-1. If the resulting Tetrimino
+collides with any other Blocks/walls/floor, this Point 1 rotation fails, and the engine tries Point 2.
+
+Super Rotation Example:
+Look at the S-Tetrimino, East Facing, Point 3 rotation. The start position is East, and the top row of
+the page shows all the rotation points for this position. Using the Left rotation for Point 3:
+1.  Start-3 is Point 3 of the East Facing Tetrimino in the top row.
+2.  End-3 is Point 3 of the North Facing Tetrimino in the top row.
+3.  Shift the North Facing Tetrimino in the top row so that End-3 matches up with Start-3.
+4.  Check if the resulting Tetrimino collides with anything. If not, use this rotation. If it does,
+then try Point 4.
+© 2009, Blue Planet Software, Inc.
+
+Page 39 of 90
+
+Tetris® Design Guideline
+March, 2009
+'O' TETRIMINO: LEFT & RIGHT ROTATION, ALL START POSITIONS
+Note: All rotation points for the 'O' Tetrimino are the same for all start positions.
+
+234
+1 5
+
+234
+1 5
+
+234
+1 5
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 1:
+A. VISUAL
+
+POINT 2:
+
+POINT 3:
+
+POINT 4:
+
+POINT 5:
+
+Page 40 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'I' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = NORTH
+NORTH
+
+WEST
+
+EAST
+
+LEFT
+5
+2
+3 1
+
+RIGHT
+4
+4
+2
+
+1
+
+5
+3
+
+1 2 3
+
+5
+
+4
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+
+2
+
+2
+
+2
+
+POINT 3:
+
+3
+
+3
+
+3
+
+POINT 4:
+D. Off the FLOOR
+4
+
+4
+
+4
+
+POINT 5:
+D. Off the FLOOR
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+5
+
+5
+
+Page 41 of 90
+
+Tetris® Design Guideline
+March, 2009
+'I' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = EAST
+NORTH
+
+EAST
+
+SOUTH
+
+LEFT
+
+RIGHT
+4
+
+4
+2
+
+53
+1
+
+1 2 3
+
+3
+
+1
+
+2
+
+5
+
+4
+
+5
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+B. Off RIGHT Wall
+C. Off LEFT Wall
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 3:
+B. Off RIGHT Wall
+C. Off LEFT Wall
+
+POINT 4:
+E. Out of RIGHT Well
+F. Out of LEFT Well
+
+POINT 5:
+
+Page 42 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'I' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = SOUTH
+EAST
+
+SOUTH
+LEFT
+
+WEST
+RIGHT
+
+4
+1 2 3
+
+3
+
+1
+
+5
+
+5
+2
+3 1
+
+2
+4
+
+5
+
+4
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+
+2
+
+2
+
+2
+
+POINT 3:
+
+3
+
+3
+
+3
+
+POINT 4:
+D. Off the FLOOR
+
+4
+
+4
+
+4
+
+POINT 5:
+D. Off the FLOOR
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+5
+
+5
+
+Page 43 of 90
+
+Tetris® Design Guideline
+March, 2009
+'I' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = WEST
+SOUTH
+LEFT
+
+3
+
+1
+
+5
+
+2
+
+NORTH
+
+WEST
+RIGHT
+3
+21
+
+5
+4
+2
+
+1
+
+5
+3
+
+4
+4
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+B. Off RIGHT Wall
+C. Off LEFT Wall
+
+POINT 3:
+B. Off RIGHT Wall
+C. Off LEFT Wall
+
+POINT 4:
+
+POINT 5:
+E. Out of RIGHT Well
+F. Out of RIGHT Well
+
+Page 44 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS
+A. VISUAL
+
+WEST
+
+NORTH
+
+EAST
+
+POINT 1:
+LEFT
+
+RIGHT
+
+1
+
+1
+
+NORTH
+
+1
+
+EAST
+
+SOUTH
+
+POINT 1:
+
+1
+
+1
+
+1
+
+EAST
+
+SOUTH
+
+WEST
+
+POINT 1:
+
+1
+
+1
+
+SOUTH
+
+1
+
+WEST
+
+NORTH
+
+POINT 1:
+
+1
+
+1
+
+B. Off the RIGHT Wall
+
+1
+
+EAST
+
+SOUTH
+
+POINT 2:
+
+2
+
+POINT 3:
+
+© 2009, Blue Planet Software, Inc.
+
+NORTH
+
+EAST
+
+3
+
+3
+
+2
+
+Page 45 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+B. Off RIGHT Wall
+
+SOUTH
+
+WEST
+
+POINT 2:
+
+2
+
+2
+
+WEST
+
+NORTH
+
+POINT 3:
+
+3
+
+C. Off LEFT Wall
+
+NORTH
+
+3
+
+EAST
+
+POINT 2:
+
+2
+
+2
+
+EAST
+
+SOUTH
+
+POINT 3:
+
+3
+
+WEST
+
+3
+
+NORTH
+
+POINT 2:
+
+2
+
+SOUTH
+
+2
+
+WEST
+
+POINT 3:
+
+3
+
+Page 46 of 90
+
+3
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS (cont'd)
+D. Off the FLOOR
+
+WEST
+
+NORTH
+
+POINT 4:
+
+4
+
+4
+
+NORTH
+
+POINT 5:
+
+EAST
+
+5
+
+SOUTH
+
+5
+
+WEST
+
+POINT 4:
+
+4
+
+4
+
+EAST
+
+SOUTH
+
+POINT 5:
+
+5
+
+E. Out of RIGHT Well
+
+5
+
+EAST
+
+SOUTH
+
+4
+
+WEST
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+4
+
+NORTH
+
+5
+
+Page 47 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+F. Out of LEFT Well
+POINT 4:
+
+NORTH
+
+EAST
+
+4
+
+4
+
+SOUTH
+
+WEST
+
+POINT 5:
+
+5
+
+Page 48 of 90
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'T' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = NORTH
+NORTH
+
+WEST
+5
+
+4
+
+LEFT
+
+RIGHT
+234
+
+2
+
+1
+
+EAST
+
+1 5
+
+4
+
+1
+
+3
+
+5
+
+2
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+D. Off the FLOOR
+
+POINT 4:
+Not Used
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 49 of 90
+
+Tetris® Design Guideline
+March, 2009
+'T' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = EAST
+NORTH
+
+EAST
+LEFT
+
+234
+1 5
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+RIGHT
+234
+1 5
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+C. Off the LEFT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+E. Out of RIGHT Well
+
+4
+
+4
+
+4
+
+POINT 5:
+F. Out of LEFT Well
+
+Page 50 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'T' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = SOUTH
+EAST
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+LEFT
+
+WEST
+RIGHT
+
+234
+1 5
+
+3
+
+5
+
+4
+
+2
+
+1
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+Not Used
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 51 of 90
+
+Tetris® Design Guideline
+March, 2009
+'T' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = WEST
+SOUTH
+LEFT
+234
+1 5
+
+NORTH
+
+WEST
+RIGHT
+
+5
+
+4
+
+2
+
+1
+
+234
+1 5
+
+1
+
+1
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+POINT 2:
+B. Off the RIGHT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+F. Out of LEFT Well
+
+POINT 5:
+E. Out of RIGHT Well
+
+Page 52 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS
+A. VISUAL
+
+WEST
+
+NORTH
+
+EAST
+
+1
+
+1
+
+POINT 1:
+
+1
+
+NORTH
+
+EAST
+
+SOUTH
+
+POINT 1:
+
+1
+
+1
+
+1
+
+EAST
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+NORTH
+
+POINT 1:
+
+NORTH
+
+POINT 1:
+
+B. Off RIGHT Wall
+POINT 2:
+
+2
+
+C. Off LEFT Wall
+
+2
+
+NORTH
+
+2
+
+EAST
+
+SOUTH
+
+POINT 2:
+
+2
+
+© 2009, Blue Planet Software, Inc.
+
+2
+
+2
+
+Page 53 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+D. Off the FLOOR
+WEST
+
+NORTH
+
+EAST
+
+POINT 3:
+LEFT
+
+RIGHT
+
+3
+
+3
+
+3
+
+E. Out of RIGHT Well
+NORTH
+
+EAST
+
+POINT 4:
+4
+
+4
+
+WEST
+
+NORTH
+
+5
+
+5
+
+POINT 5:
+
+F. Out of LEFT Well
+NORTH
+
+EAST
+
+POINT 5:
+5
+
+5
+
+WEST
+
+NORTH
+
+4
+
+4
+
+POINT 4:
+
+Page 54 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'L' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = NORTH
+WEST
+5
+
+4
+
+NORTH
+LEFT
+
+RIGHT
+234
+
+2
+
+1
+
+EAST
+
+1 5
+
+4
+
+1
+
+3
+
+5
+
+2
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+D. Off the FLOOR
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 55 of 90
+
+Tetris® Design Guideline
+March, 2009
+'L' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = EAST
+NORTH
+
+EAST
+LEFT
+
+234
+1 5
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+RIGHT
+234
+1 5
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+C. Off the LEFT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+E. Out of RIGHT Well
+
+POINT 5:
+F. Out of LEFT Well
+
+Page 56 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'L' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = SOUTH
+EAST
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+LEFT
+
+WEST
+RIGHT
+
+234
+1 5
+
+5
+
+4
+
+2
+
+1
+
+3
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 57 of 90
+
+Tetris® Design Guideline
+March, 2009
+'L' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = WEST
+SOUTH
+LEFT
+234
+1 5
+
+NORTH
+
+WEST
+RIGHT
+
+5
+
+4
+
+2
+
+1
+
+234
+1 5
+
+1
+
+1
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+POINT 2:
+B. Off the RIGHT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+F. Out of LEFT Well
+
+POINT 5:
+E. Out of RIGHT Well
+
+Page 58 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS
+A. VISUAL
+
+WEST
+
+NORTH
+
+EAST
+
+1
+
+1
+
+POINT 1:
+
+1
+
+NORTH
+
+EAST
+
+SOUTH
+
+POINT 1:
+
+1
+
+1
+
+1
+
+EAST
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+NORTH
+
+POINT 1:
+
+NORTH
+
+POINT 1:
+
+B. Off RIGHT Wall
+POINT 2:
+
+2
+
+C. Off LEFT Wall
+
+2
+
+NORTH
+
+2
+
+EAST
+
+SOUTH
+
+POINT 2:
+
+2
+
+© 2009, Blue Planet Software, Inc.
+
+2
+
+2
+
+Page 59 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+D. Off the FLOOR
+WEST
+
+NORTH
+
+EAST
+
+POINT 3:
+LEFT
+
+RIGHT
+
+3
+
+3
+
+3
+
+E. Out of RIGHT Well
+NORTH
+
+EAST
+
+POINT 4:
+4
+
+4
+
+WEST
+
+NORTH
+
+POINT 5:
+5
+
+5
+
+F. Out of LEFT Well
+NORTH
+
+EAST
+
+POINT 5:
+5
+
+5
+
+WEST
+
+NORTH
+
+POINT 4:
+4
+
+Page 60 of 90
+
+4
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'J' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = NORTH
+NORTH
+
+WEST
+5
+
+4
+
+LEFT
+
+RIGHT
+234
+
+2
+
+1
+
+EAST
+
+1 5
+
+4
+
+5
+
+1
+
+2
+
+3
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+D. Off the FLOOR
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 61 of 90
+
+Tetris® Design Guideline
+March, 2009
+'J' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = EAST
+NORTH
+
+EAST
+LEFT
+
+234
+1 5
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+RIGHT
+234
+1 5
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+C. Off the LEFT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+E. Out of RIGHT Well
+
+POINT 5:
+F. Out of LEFT Well
+
+Page 62 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'J' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = SOUTH
+EAST
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+LEFT
+
+WEST
+RIGHT
+
+234
+1 5
+
+5
+
+4
+
+2
+
+1
+
+3
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 63 of 90
+
+Tetris® Design Guideline
+March, 2009
+'J' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = WEST
+SOUTH
+LEFT
+234
+1 5
+
+NORTH
+
+WEST
+RIGHT
+
+5
+
+4
+
+2
+
+1
+
+234
+1 5
+
+1
+
+1
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+POINT 2:
+B. Off the RIGHT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+F. Out of LEFT Well
+
+POINT 5:
+E. Out of RIGHT Well
+
+Page 64 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS
+A. VISUAL
+
+WEST
+
+NORTH
+
+EAST
+
+1
+
+1
+
+1
+
+NORTH
+
+EAST
+
+SOUTH
+
+1
+
+1
+
+1
+
+EAST
+
+SOUTH
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+NORTH
+
+2
+
+2
+
+2
+
+POINT 1:
+
+POINT 1:
+
+WEST
+
+POINT 1:
+
+1
+
+NORTH
+
+POINT 1:
+
+B. Off RIGHT Wall
+POINT 2:
+
+C. Off LEFT Wall
+
+NORTH
+
+EAST
+
+SOUTH
+
+POINT 2:
+
+2
+
+© 2009, Blue Planet Software, Inc.
+
+2
+
+2
+
+Page 65 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+D. Off the FLOOR
+WEST
+
+NORTH
+
+EAST
+
+POINT 3:
+LEFT
+
+RIGHT
+
+3
+
+3
+
+3
+
+E. Out of RIGHT Well
+NORTH
+
+EAST
+
+POINT 4:
+4
+
+4
+
+WEST
+
+NORTH
+
+POINT 5:
+5
+
+5
+
+F. Out of LEFT Well
+NORTH
+
+EAST
+
+POINT 5:
+5
+
+5
+
+WEST
+
+NORTH
+
+POINT 4:
+4
+
+Page 66 of 90
+
+4
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'S' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = NORTH
+WEST
+5
+
+4
+
+NORTH
+LEFT
+
+RIGHT
+234
+
+2
+
+1
+
+EAST
+
+1 5
+
+4
+
+1
+
+3
+
+5
+
+2
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+D. Off the FLOOR
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 67 of 90
+
+Tetris® Design Guideline
+March, 2009
+'S' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = EAST
+NORTH
+
+EAST
+LEFT
+
+234
+1 5
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+RIGHT
+234
+1 5
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+C. Off the LEFT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+E. Out of RIGHT Well
+
+POINT 5:
+F. Out of LEFT Well
+
+Page 68 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'S' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = SOUTH
+EAST
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+LEFT
+
+WEST
+RIGHT
+
+234
+1 5
+
+5
+
+4
+
+2
+
+1
+
+3
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 69 of 90
+
+Tetris® Design Guideline
+March, 2009
+'S' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = WEST
+SOUTH
+LEFT
+234
+1 5
+
+NORTH
+
+WEST
+RIGHT
+
+5
+
+4
+
+2
+
+1
+
+234
+1 5
+
+1
+
+1
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+POINT 2:
+B. Off the RIGHT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+F. Out of LEFT Well
+
+POINT 5:
+E. Out of RIGHT Well
+
+Page 70 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS
+A. VISUAL
+
+WEST
+
+NORTH
+
+EAST
+
+1
+
+1
+
+POINT 1:
+
+1
+
+NORTH
+
+EAST
+
+SOUTH
+
+POINT 1:
+
+1
+
+1
+
+1
+
+EAST
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+NORTH
+
+POINT 1:
+
+NORTH
+
+POINT 1:
+
+B. Off RIGHT Wall
+POINT 2:
+
+2
+
+C. Off LEFT Wall
+
+2
+
+NORTH
+
+2
+
+EAST
+
+SOUTH
+
+POINT 2:
+
+2
+
+© 2009, Blue Planet Software, Inc.
+
+2
+
+2
+
+Page 71 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+D. Off the FLOOR
+WEST
+
+NORTH
+
+EAST
+
+POINT 3:
+LEFT
+
+RIGHT
+
+3
+
+3
+
+3
+
+E. Out of RIGHT Well
+NORTH
+
+EAST
+
+POINT 4:
+4
+
+4
+
+WEST
+
+NORTH
+
+POINT 5:
+5
+
+5
+
+F. Out of LEFT Well
+NORTH
+
+EAST
+
+POINT 5:
+5
+
+5
+
+WEST
+
+NORTH
+
+POINT 4:
+4
+
+Page 72 of 90
+
+4
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'Z' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = NORTH
+NORTH
+
+WEST
+5
+
+4
+
+LEFT
+
+RIGHT
+234
+
+2
+
+1
+
+EAST
+
+1 5
+
+4
+
+1
+
+3
+
+5
+
+2
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+D. Off the FLOOR
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 73 of 90
+
+Tetris® Design Guideline
+March, 2009
+'Z' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = EAST
+NORTH
+
+EAST
+LEFT
+
+234
+1 5
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+RIGHT
+234
+1 5
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+POINT 2:
+C. Off the LEFT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+E. Out of RIGHT Well
+
+POINT 5:
+F. Out of LEFT Well
+
+Page 74 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+'Z' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = SOUTH
+EAST
+
+SOUTH
+
+4
+
+5
+
+1
+
+2
+
+LEFT
+
+WEST
+RIGHT
+
+234
+1 5
+
+5
+
+4
+
+2
+
+1
+
+3
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+1
+
+1
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+4
+
+4
+
+4
+
+5
+
+5
+
+5
+
+POINT 2:
+
+POINT 3:
+
+POINT 4:
+
+POINT 5:
+
+© 2009, Blue Planet Software, Inc.
+
+Page 75 of 90
+
+Tetris® Design Guideline
+March, 2009
+'Z' TETRIMINO: LEFT & RIGHT ROTATION, START POSITION = WEST
+SOUTH
+LEFT
+234
+1 5
+
+NORTH
+
+WEST
+RIGHT
+
+5
+
+4
+
+2
+
+1
+
+234
+1 5
+
+1
+
+1
+
+3
+
+POINT 1:
+A. VISUAL
+
+1
+
+POINT 2:
+B. Off the RIGHT Wall
+
+2
+
+2
+
+2
+
+3
+
+3
+
+3
+
+POINT 3:
+
+POINT 4:
+
+4
+
+4
+
+4
+
+F. Out of LEFT Well
+
+POINT 5:
+E. Out of RIGHT Well
+
+Page 76 of 90
+
+5
+
+5
+
+5
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix A The Tetris Engine
+
+PRIMARY ROTATIONS
+A. VISUAL
+
+WEST
+
+NORTH
+
+EAST
+
+1
+
+1
+
+POINT 1:
+
+1
+
+NORTH
+
+EAST
+
+SOUTH
+
+POINT 1:
+
+1
+
+1
+
+1
+
+EAST
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+1
+
+1
+
+1
+
+SOUTH
+
+WEST
+
+NORTH
+
+POINT 1:
+
+NORTH
+
+POINT 1:
+
+B. Off RIGHT Wall
+POINT 2:
+
+2
+
+C. Off LEFT Wall
+
+2
+
+NORTH
+
+2
+
+EAST
+
+SOUTH
+
+POINT 2:
+
+2
+
+© 2009, Blue Planet Software, Inc.
+
+2
+
+2
+
+Page 77 of 90
+
+Tetris® Design Guideline
+March, 2009
+PRIMARY ROTATIONS (cont'd)
+D. Off the FLOOR
+WEST
+
+NORTH
+
+EAST
+
+POINT 3:
+LEFT
+
+RIGHT
+
+3
+
+3
+
+3
+
+E. Out of RIGHT Well
+NORTH
+
+EAST
+
+POINT 4:
+4
+
+4
+
+WEST
+
+NORTH
+
+POINT 5:
+5
+
+5
+
+F. Out of LEFT Well
+NORTH
+
+EAST
+
+POINT 5:
+5
+
+5
+
+WEST
+
+NORTH
+
+POINT 4:
+4
+
+Page 78 of 90
+
+4
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix B Multiplayer
+Appendix B Multiplayer
+B1.1 Introduction
+B1.1.1  What is Tetris Multiplayer?
+Tetris Multiplayer may be defined as any Tetris variant where more than one player plays at
+the same time, either cooperatively or competitively. This appendix explains typical features
+or elements found in successful multiplayer games. In addition, it provides direction for the Line
+Attack/Counter Attack scoring system.
+
+B1.1.2  Tetris Multiplayer Terminology
+Broken Line: n. any line sent to opponents with only one gap in the row. In the typical
+Multiplayer Tetris variant, Broken Lines are clearable and have just one gap in a
+random location.
+Counter Attack: n. an attack against an opponent’s Line Attacks to prevent lines from
+appearing in one’s own Matrix. Before any lines from an action can be sent to an opponent,
+one’s own Receiving Queue must first be cleared.
+Line Attack: n. this attack sends Broken or Solid Lines of Blocks to opponents (at random or user
+targeted times, depending on the system used), and can be performed using these actions:
+Doubles, Triples, Tetrises, T-Spin Singles, T-Spin Doubles, and T-Spin Triples.
+Receiving Queue: n. a vertical meter that accrues opponents’ Line Attacks between Lock
+Downs. When a Lock Down occurs, any lines accrued in the meter are added to the bottom of
+that player’s Matrix before generation of the Next Tetrimino.
+Solid Line: n. a row of Blocks without any gaps sent to one or more opposing players. Solid Lines
+typically cannot be cleared.
+Starting Lines: n. any rows of Broken or Solid Lines at the beginning of a game. Typically,
+variants may use different preset or random patterns to mix up game play during a
+Multiplayer session.
+© 2009, Blue Planet Software, Inc.
+
+Page 79 of 90
+
+Tetris® Design Guideline
+March, 2009
+Target Mark: n. a movable marker that designates the recipient of a Line Attack. This marker
+displays near the middle of the opponent’s Matrix but is only visible to the player that controls it.
+Top Out Line: n. the ceiling of the Buffer Zone, 20 rows above the Skyline. This is the absolute
+topmost line in Tetris, and only in Multiplayer games where Lines Attacks are sent to opponents
+can the Game Over Condition known as Top Out occur.
+
+B1.2 Game Types
+B1.2.1  Competitive Tetris Multiplayer
+The main objective in Competitive Tetris Multiplayer is to force one or more opponents (humans
+or AI) to the top of the screen for a game over. Competitive can be played solo or in teams,
+typically two teams of two to three people per team.
+To create exciting, strategic, and faster paced games, Tetris Multiplayer games usually have A)
+a Line Attack system which affects other players, and occasionally B) a progressively faster Fall
+Speed (or some other preset difficulty) as either time passes or a certain amount of
+Tetriminos fall.
+
+Note: In most competitive multiplayer variants, all players should receive the same order of
+Tetriminos (random for each game played), unless the variant is specifically designed not to
+do this.
+Examples:
+1 Player vs. 1 Player: This could be a standard versus variant with Line Attacks.
+1 Player vs. 1 Computer Player: The player could set the computer’s artificial intelligence level
+and then play a standard versus game with Line Attacks to see the winner.
+1 Player vs. Players and/or Computer Players: Each player tries to defeat all other players
+and/or computer opponents. This could be a standard versus variant with Line Attacks.
+
+B1.2.2  Cooperative Tetris Multiplayer
+In Cooperative Tetris Multiplayer, one or more players join forces to achieve a goal, be it to
+defeat a computer opponent, or clear a set number of lines in the shortest amount of time.
+Cooperative Tetris Multiplayer games are always played in teams, however, teammates may
+include one or more computer controlled players.
+Examples:
+Player Team vs. Player Team: Playing to defeat another human team using either the same
+winning objective or different counter objectives. For example, a team of three players takes
+on another team of three players.
+Player Team vs. Computer Team: Playing to defeat a team of computer opponents using
+either the same winning objective or different counter objectives.
+Player Team vs. Player Teams and/or Computer Teams: Playing to defeat other teams
+using either the same winning objective or different counter objectives. Teams may be human
+controlled, computer controlled, or both.
+
+Page 80 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix B Multiplayer
+B1.2.3  Practice Mode
+Whether in competitive or cooperative multiplayer games, if any player potentially must wait
+for the other player(s) to finish, there should be a practice mode where that player immediately
+may begin playing on the current level until the other players finish or the goal is completed.
+If the practicing player reaches the top of the Matrix, another practice session may start until
+other players finish the game or goal.
+After the goal is completed or game finished, the practicing player(s) may then join in
+the game.
+
+Note: The word “Practice” must be predominantly displayed somewhere in the Matrix area.
+
+B1.3 Line Attack System
+The standard Tetris Multiplayer game has included a Line Attack and Counter Attack system
+which sends lines of Blocks (either broken or solid) to opponents so that they reach the top of
+the Matrix and are eliminated from the game first.
+Players send lines by achieving a Double, Triple, Tetris, T-Spin Single/Double/Triple Line Clear,
+and for Back-to-Backs. Depending on the action achieved, more or less lines may be sent to
+opponents (as seen in the table on the next page).
+
+B1.3.1  Broken and Solid Lines
+Lines sent to all opponents (if more than one) are identical, appear in the Matrix from the
+bottom upward, and are categorized into two types:
+• Broken Lines are clearable and typically have a single-cell gap.
+• Solid Lines are unclearable, and every line appears as a solid line with no gaps.
+Typical Tetris Multiplayer games have Broken Lines rather than Solid Lines sent to
+opposing players.
+
+B1.3.2  Gap Randomness in Broken Lines
+After every eight new lines appear in a player’s Matrix, the next eight lines have the single gap
+in a different random location. New lines ready to be added from the Receiving Queue do not
+count - only the ones appearing in the Matrix.
+
+B1.3.3  Receiving Queue
+Next to each player’s Matrix is a bar or visual indicator that displays how many lines are
+incoming. New lines are added to the Matrix from the bottom up, and appear only after the
+player’s Tetrimino Locks Down.
+
+B1.3.4  Counter Attacks
+If there are lines in the Receiving Queue ready to be added to the Matrix, then when a Lock
+Down occurs, the player first reduces the Receiving Queue by the same number of lines that
+would have been sent to opponents. If there are leftover lines, the remaining lines then get sent
+to the opponents.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 81 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+B1.3.5  Table of Line Attacks
+The following table shows how many lines are sent to opponents. Before lines are sent, any lines
+in the Receiving Queue must first be reduced (see Table of Counter Attacks).
+Action
+
+# of Lines Sent
+
+Single
+
+0
+
+Double
+
+1
+
+Triple
+
+2
+
+Tetris
+
+4
+
+T-Spin/Mini T-Spin/
+Mini T-Spin Single
+
+0
+
+T-Spin Single
+
+2
+
+T-Spin Double
+
+4
+
+T-Spin Triple
+
+6
+
+Back-to-Back
+
++1
+
+B1.3.6  Table of Counter Attacks
+In the following table, the left column shows each of the possible actions for sending lines to
+opponents in variants using this system. Along the top is the height (in number of lines) of the
+current Receiving Queue before a Lock Down. In the middle of the table are the results of the
+action on the left against the Receiving Queue on top.
+For example, if any lines were sent (S), the number “2 S” would refer to the total number of lines
+sent to the opponent, including the reduction of the Receiving Queue, if any. If an “R” follows
+the number, it means the action was not enough to negate the entire Receiving Queue, and
+the player’s Matrix is filled from the bottom up by that many lines.
+Height of Your Receiving Queue
+
+Your Action
+
+0 Lines
+
+2 Lines
+
+3 Lines
+
+4 Lines
+
+5 Lines
+...
+
+Total Lines Sent/Remaining as a Result of Your Action*
+(S=Sent to opponent, R=Remaining in your Receiving Queue.
+Lines Remaining are added to your Matrix after Lock Down.)
+
+Single
+
+1R
+
+2R
+
+3R
+
+4R
+
+5R
+
+1R
+
+2R
+
+3R
+
+4R
+
+1R
+
+2R
+
+3R
+
+Double
+
+1S
+
+Triple
+
+2S
+
+1S
+
+Tetris
+
+4S
+
+3S
+
+2S
+
+1S
+
+1R
+
+2R
+
+3R
+
+4R
+
+5R
+
+1R
+
+2R
+
+3R
+
+T-Spin/Mini T-Spin/
+Mini T-Spin Single
+T-Spin Single
+
+2S
+
+1S
+
+T-Spin Double
+
+4S
+
+3S
+
+2S
+
+1S
+
+T-Spin Triple
+
+6S
+
+5S
+
+4S
+
+3S
+
+Back-to-Back
+Back-to-Back Tetris
+Page 82 of 90
+
+1 Line
+
+1R
+
+1R
+2S
+
+1S
+
+Add +1 lines sent to any action
+(for the first and any subsequent Back-to-Backs)
+5S
+
+4S
+
+3S
+
+2S
+
+1S
+
+© 2009, Blue Planet Software, Inc.
+
+Appendix B Multiplayer
+
+Height of Your Receiving Queue
+
+0 Lines
+
+Back-to-Back
+T-Spin/Mini T-Spin/
+Mini T-Spin Single
+
+1 Line
+
+2 Lines
+
+3 Lines
+
+4 Lines
+
+5 Lines
+...
+
+1R
+
+2R
+
+3R
+
+4R
+
+5R
+
+1R
+
+2R
+
+Back-to-Back T-Spin Single
+
+3S
+
+2S
+
+1S
+
+Back-to-Back T-Spin Double
+
+5S
+
+4S
+
+3S
+
+2S
+
+1S
+
+Back-to-Back T-Spin Triple
+
+7S
+
+6S
+
+5S
+
+4S
+
+3S
+
+2S
+
+*After any action, the lines in the player’s Receiving Queue are first reduced to zero before lines (if any)
+are sent to another player.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 83 of 90
+
+Tetris® Design Guideline
+March, 2009
+
+B1.4 User Interface
+Design of the user interface depends on the needs of the players. For games where each
+player must use the same display device (e.g., a television), more information needs to be
+shown on the user interface. For sample layouts of this type, see the Main Menu section.
+For games where each player has a separate display device (e.g., a monitor), the user
+interface can be customized with existing conventions for multiplayer games. The following is a
+sample layout for this type of game. It is not required that Tetris Multiplayer games follow
+this layout.
+
+4
+
+5
+7
+
+1
+
+2
+
+6
+
+3
+
+B1.4.1  Game Screen
+The game screen is where all game play action takes place. Items on the game screen should,
+if supported, include most or all of the following: the player’s avatar (graphical online persona),
+opponents’/teammates’ avatars and Matrices, Receiving Queue, Target Mark, Chat Window
+(whether a separate window or integrated), Chat Bubbles next to opponents’/teammates’
+avatars, Timer, and other Tetris interface conventions such as the Hold and Next Queues, etc.
+1: Player’s Matrix
+
+4: Opponent’s Matrix
+
+2: Player’s Receiving Queue
+
+5: Opponent’s Receiving Queue
+
+3: Player’s Chat Window
+
+6: Player’s Avatar
+
+Page 84 of 90
+
+7: Player’s Target Mark
+
+© 2009, Blue Planet Software, Inc.
+
+Tetris Glossary
+14. Tetris Glossary
+Back-to-Back: adj. describes two major bonus actions, such as two Tetrises, performed without
+a Single, Double, or Triple Line Clear occurring between them.
+
+Block: n. a single block locked in a cell in the Matrix. Also known as an existing Block.
+Block Out: n. the Game Over Condition that occurs when part of a newly-generated Tetrimino
+is blocked due to an existing Block in the Matrix.
+
+Broken Line: n. any line sent to opponents with only one gap in the row. In the typical
+Multiplayer Tetris variant, Broken Lines are clearable and have just one gap in a
+random location.
+
+Buffer Zone: n. a 10-cell wide x 20-cell high invisible area above the Matrix used to detect Lock
+Out, Block Out, and Top Out Game Over Conditions.
+
+Collapse: v. all Locked Down Blocks above the Line Clear fall vertically by the same number of
+rows as the number of lines that were cleared.
+
+Counter Attack: n. an attack against an opponent’s Line Attacks to prevent lines from
+appearing in one’s own Matrix. Before any lines from an action can be sent to an opponent,
+one’s own Receiving Queue must first be cleared.
+
+Facing: n. each Tetrimino has four facings: North, East, South, and West. All Tetriminos appear in
+the Next and Hold Queue, and are generated, in their North Facings.
+
+Fall Speed: n. the speed at which a Tetrimino descends from the top of the Matrix.
+Ghost Piece: n. a graphical representation of where the Tetrimino in play will come to rest if it
+is dropped from its current position. Appears as an outline or translucent image. Begins North
+Facing at generation.
+
+Goal: n. the condition that must be met before a Level Up (or Game Completed) takes place,
+and is typically a number of lines left to be cleared. The Goal depends on the goal system
+used. For the Fixed Goal System, 10 lines must be cleared on each level. For the Variable Goal
+System, the player must clear 5 lines at level 1, 10 lines at level 2, and so on. Each level adds an
+additional five lines to the Goal.
+
+Hard Drop: n,v. causes the Tetrimino in play to drop straight down instantly from its current
+location and Lock Down on the first Surface it lands on. It does not allow for further player
+manipulation of the Tetrimino in play.
+© 2009, Blue Planet Software, Inc.
+
+Page 85 of 90
+
+Tetris® Design Guideline
+March, 2009
+Hold Queue: n. the storage place where players can Hold any falling Tetrimino for use later.
+When called for, the held Tetrimino swaps places with the currently falling Tetrimino, and begins
+falling again at the generation point.
+
+Level Up: n. upon completion of a level’s Goal, the player proceeds to the next level.
+Line: n. the result when Blocks fill a horizontal line of cells in the Matrix.
+Line Attack: n. this attack sends Broken or Solid Lines of Blocks to opponents (at random or user
+targeted times, depending on the system used), and can be performed using these actions:
+Doubles, Triples, Tetrises, T-Spin Singles, T-Spin Doubles, and T-Spin Triples.
+
+Line Clear: n. when a horizontal row is completely filled with Blocks, it is removed from the
+Matrix and is called a Line Clear. All pieces above the Line Clear shift down to fill the space.
+Most Tetris variations award scoring or other bonuses for the number of lines cleared at one
+time. These are known as “Line Clear Bonuses”. There are eight types of Line Clears:
+
+Single: the player clears one line.
+Double: the player clears two lines.
+Triple: the player clears three lines.
+Tetris: the player clears four lines.
+Mini T-Spin Single: the player clears one line by achieving an easier T-Spin.
+T-Spin Single: the player clears one line by achieving a T-Spin.
+T-Spin Double: the player clears two lines by achieving a T-Spin.
+T-Spin Triple: the player clears three lines by achieving a T-Spin.
+Lock Down: n. the point at which a Tetrimino in play can no longer be manipulated by the
+player. This generally occurs 0.5 seconds after a Tetrimino lands on a Surface.
+
+Lock Down Timer: n. counts down from 0.5 seconds once the Tetrimino in play lands on a
+Surface. When this time expires, the Tetrimino Locks Down and can no longer be manipulated
+by the player. The Lock Down Timer resets according to Classic or Infinite Placement Lock
+Down Rules.
+
+Lock Out: n. the Game Over Condition occurring when a Tetrimino Locks Down completely
+above the Skyline.
+
+Page 86 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Tetris Glossary
+Matrix (may-trix): n. the rectangular arrangement of cells creating the active game area,
+usually 10 columns wide by 20 rows high. Tetriminos fall from the top-middle just above the
+Skyline (off-screen) to the bottom.
+
+Mino (mee-noh): n. a single square-shaped building block of a shape called a Tetrimino. Four
+Minos arranged into any of their various connected patterns is known as a Tetrimino.
+
+Next Queue: n. displays the Next Tetrimino(s) to be placed (generated) just above the Matrix. If
+hardware permits, the next six Tetriminos should be shown.
+
+Next Tetrimino: n. the next Tetrimino that will be placed (generated) just above the Matrix.
+Piece Edges: n. the edges, or boundary, of a single Tetrimino.
+Receiving Queue: n. a vertical meter that accrues opponents’ Line Attacks between Lock
+Downs. When a Lock Down occurs, any lines accrued in the meter are added to the bottom of
+that player’s Matrix before generation of the Next Tetrimino.
+
+Rotation: n. the method by which the player changes the facing of a Tetrimino. Rotation
+occurs at 90 degree intervals, and can be performed in both the clockwise or
+counterclockwise directions.
+
+Skyline: n. the horizontal line at the top of the Matrix. Tetriminos fall from the middle of the
+Matrix just above the Skyline.
+
+Soft Drop: n,v. causes the Tetrimino to drop at an accelerated rate (20x the normal Fall Speed)
+from its current location.
+
+Solid Line: n. a row of Blocks without any gaps sent to one or more opposing players.
+Starting Lines: n. any rows of Broken or Solid Lines at the beginning of a game. Typically,
+variants may use different preset or random patterns to mix up game play during a
+Multiplayer session.
+
+Surface: n. the top of any Block in the Matrix, or the bottom of the Matrix floor.
+Super Rotation System: n. the system devised to enable the rotation of a Tetrimino regardless
+of where it is in the Matrix.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 87 of 90
+
+Tetris® Design Guideline
+March, 2009
+Target Mark: n. a movable marker that designates the recipient of a Line Attack. This marker
+displays near the middle of the opponent’s Matrix but is only visible to the player that controls it.
+
+Tetriminos (tetri-mee-nohs): n. geometric Tetris® shape formed by four Minos connected along
+their sides. A total of seven possible Tetriminos can be made using four Minos, each represented
+by a unique color.
+
+O-Tetrimino: yellow; a square shape; four blocks in a 2×2 square.
+I-Tetrimino: light blue; shaped like a capital I; four blocks in a straight line.
+T-Tetrimino: purple; shaped like a capital T; a row of three blocks with one added
+above the center.
+L-Tetrimino: orange; shaped like a capital L; a row of three blocks with one added
+above the right side.
+J-Tetrimino: dark blue; shaped like a capital J; a row of three blocks with one added
+above the left side.
+S-Tetrimino: green; shaped like a capital S; two stacked horizontal dominoes with the
+top one offset to the right.
+Z-Tetrimino: red; shaped like a capital Z; two stacked horizontal dominoes with the top
+one offset to the left.
+
+Tetris Engine: n. the code that controls the logic of a Tetris game.
+Top Out: n. the Game Over Condition occurring when the player receiving New Blocks Lines
+forces that player’s existing Blocks to reach to the top of the Buffer Zone and past the Top
+Out Line.
+
+Top Out Line: n. the ceiling of the Buffer Zone, 20 rows above the Skyline. This is the absolute
+topmost line in Tetris.
+
+Touch: n, v. when a Tetrimino comes in contact with one of the Matrix walls or Blocks in
+the Matrix.
+
+T-Slot: n. any Block formation such that when the T-Tetrimino is spun into it, any three of the four
+cells diagonally adjacent to the center of the T-Tetrimino are occupied by existing Blocks.
+
+T-Spin: n. this action can be achieved by first landing a T-Tetrimino, and before it Locks Down,
+rotating it in a T-Slot.
+
+Page 88 of 90
+
+© 2009, Blue Planet Software, Inc.
+
+Tetris Glossary
+Visual Rotation Point: n. using the Super Rotation System, this is the point anywhere near or
+within the Tetrimino around which the engine attempts to rotate the Tetrimino. If unsuccessful, it
+will attempt to use the next Visual Rotation Point of the Tetrimino until it is successful.
+
+Well: n. a vertical gap between Blocks in the Matrix. A perfect one-cell wide by four-cell tall
+Well is the precursor to a Tetris.
+
+© 2009, Blue Planet Software, Inc.
+
+Page 89 of 90
+
+
