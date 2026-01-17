@@ -210,7 +210,7 @@ impl GameState {
         // Calculate back-to-back bonus
         let is_special = awarded_lines == 4 || is_tspin;
         let back_to_back_bonus: u64 = if self.back_to_back_active && is_special {
-            ((base_score + tspin_bonus) / 2) as u64
+            (base_score + tspin_bonus) / 2
         } else {
             0
         };
@@ -484,6 +484,13 @@ mod tests {
         let config = make_test_config(true);
         let mut state = super::GameState::new(config);
 
+        // Force the next piece to be different from T by manipulating next_pieces
+        state.next_pieces.clear();
+        state.next_pieces.push(TetriminoType::I); // Ensure first is not T
+        for _ in 0..4 {
+            state.next_pieces.push(TetriminoType::O);
+        }
+
         state.current_piece = Some(Tetrimino::new(TetriminoType::T));
         state.held_piece = None;
 
@@ -491,7 +498,8 @@ mod tests {
 
         assert_eq!(state.held_piece, Some(TetriminoType::T));
         assert!(state.current_piece.is_some());
-        assert_ne!(state.current_piece.unwrap().kind, TetriminoType::T);
+        // The new piece should be from next_pieces (I, not T)
+        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::I);
     }
 
     #[test]

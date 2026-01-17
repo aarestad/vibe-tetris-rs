@@ -13,9 +13,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    let config = GameConfig::default();
-
-    // Example: Load custom config
     let config_path = PathBuf::from("tetris_config.json");
     let config = GameConfig::load_from_file(&config_path).unwrap_or_else(|_| GameConfig::default());
 

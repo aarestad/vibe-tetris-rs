@@ -82,6 +82,11 @@ impl Renderer {
                 format!("{:<4}", state.lines_cleared),
                 Style::default().fg(Color::White),
             ),
+            Span::styled(" TO GO: ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("{:<4}", state.lines_until_next_level),
+                Style::default().fg(Color::White),
+            ),
         ])];
 
         let paragraph = Paragraph::new(info_text)
