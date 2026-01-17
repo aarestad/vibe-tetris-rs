@@ -10,6 +10,7 @@ pub struct GameConfig {
     pub lines_per_level: u32,
     pub enable_ghost_piece: bool,
     pub enable_hold: bool,
+    pub enable_variable_goal: bool,
     pub preview_count: usize,
     pub das_delay: u64,  // Delayed Auto Shift in ms
     pub das_repeat: u64, // Auto-repeat rate in ms
@@ -24,6 +25,7 @@ impl Default for GameConfig {
             lines_per_level: 10,
             enable_ghost_piece: true,
             enable_hold: true,
+            enable_variable_goal: false,
             preview_count: 3,
             das_delay: 250,
             das_repeat: 50,

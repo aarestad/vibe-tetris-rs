@@ -16,6 +16,10 @@ pub struct GameState {
     pub config: GameConfig,
     bag: Vec<TetriminoType>,
     pub lines_until_next_level: u32,
+    pieces_placed: u32,
+    combo_count: u32,
+    back_to_back_active: bool,
+    last_was_special: bool,
 }
 
 impl GameState {
@@ -35,6 +39,10 @@ impl GameState {
             config,
             bag: Vec::new(),
             lines_until_next_level,
+            pieces_placed: 0,
+            combo_count: 0,
+            back_to_back_active: false,
+            last_was_special: false,
         };
 
         // Initialize the first bag and next pieces
@@ -148,15 +156,19 @@ impl GameState {
     pub fn lock_current_piece(&mut self) {
         if let Some(piece) = self.current_piece.take() {
             self.board.lock_tetromino(&piece);
+            self.pieces_placed += 1;
+
             let lines = self.board.clear_lines();
             self.lines_cleared += lines;
-            self.update_score(lines);
+            self.update_score(lines, lines > 0);
             self.spawn_piece();
         }
     }
 
-    fn update_score(&mut self, lines: u32) {
+    fn update_score(&mut self, lines: u32, _lines_cleared: bool) {
         if lines == 0 {
+            self.combo_count = 0;
+            self.last_was_special = false;
             return;
         }
 
@@ -167,7 +179,7 @@ impl GameState {
         let awarded_lines = self.compute_awarded_lines(lines, is_tspin);
 
         // Apply score based on awarded lines and T-Spin
-        let base_score = match awarded_lines {
+        let base_score: u64 = match awarded_lines {
             1 => 100,
             2 => 300,
             3 => 500,
@@ -176,7 +188,7 @@ impl GameState {
         };
 
         // Apply T-Spin bonus multiplier
-        let tspin_bonus = if is_tspin {
+        let tspin_bonus: u64 = if is_tspin {
             match awarded_lines {
                 1 => 800,
                 2 => 1200,
@@ -188,13 +200,39 @@ impl GameState {
             0
         };
 
-        self.score += (base_score + tspin_bonus) * self.level as u64;
+        // Calculate combo bonus
+        let combo_bonus: u64 = if self.combo_count > 0 {
+            (self.combo_count * 50) as u64
+        } else {
+            0
+        };
 
-        // Update level based on Fixed Goal System
-        self.update_level_fixed_goal(lines);
+        // Calculate back-to-back bonus
+        let is_special = awarded_lines == 4 || is_tspin;
+        let back_to_back_bonus: u64 = if self.back_to_back_active && is_special {
+            ((base_score + tspin_bonus) / 2) as u64
+        } else {
+            0
+        };
 
-        // Placeholder for Variable Goal System
-        // self.update_level_variable_goal(lines);
+        self.score +=
+            (base_score + tspin_bonus + combo_bonus + back_to_back_bonus) * self.level as u64;
+
+        // Update back-to-back state
+        self.back_to_back_active = is_special;
+        self.last_was_special = is_special;
+
+        // Increment combo if lines were cleared
+        if lines > 0 {
+            self.combo_count += 1;
+        }
+
+        // Update level based on selected goal system
+        if self.config.enable_variable_goal {
+            self.update_level_variable_goal(lines, is_tspin);
+        } else {
+            self.update_level_fixed_goal(lines);
+        }
     }
 
     fn compute_awarded_lines(&self, cleared_lines: u32, is_tspin: bool) -> u32 {
@@ -240,15 +278,58 @@ impl GameState {
         }
     }
 
-    fn update_level_variable_goal(&mut self, _lines_cleared: u32) {
-        // Placeholder for Variable Goal System from Tetris Design Guidelines
-        // This system will adjust level requirements based on:
-        // - Number of pieces placed
+    fn update_level_variable_goal(&mut self, lines_cleared: u32, is_tspin: bool) {
+        // Variable Goal System based on Tetris Design Guidelines
+        // Adjusts level requirements based on:
+        // - Number of pieces placed (performance metric)
+        // - Back-to-back bonuses (Tetrises, T-Spins)
         // - Combo multipliers
-        // - Back-to-back bonuses
-        // - Performance metrics
-        //
-        // TODO: Implement variable goal system based on Tetris Design Guidelines
+
+        let base_lines_per_level = self.config.lines_per_level;
+        let is_special_clear = lines_cleared == 4 || is_tspin;
+
+        // Calculate goal adjustment based on pieces placed efficiency
+        // More pieces per line cleared = faster level progression
+        let efficiency_factor = if self.pieces_placed > 0 {
+            (self.pieces_placed as f64 / lines_cleared.max(1) as f64).min(2.0)
+        } else {
+            1.0
+        };
+
+        // Calculate back-to-back bonus (reduces lines needed for next level)
+        let back_to_back_reduction = if self.back_to_back_active && is_special_clear {
+            (self.level as f64 * 0.1).max(0.5)
+        } else {
+            0.0
+        };
+
+        // Calculate combo bonus (reduces lines needed for next level)
+        let combo_reduction = (self.combo_count as f64 * 0.05).min(0.5);
+
+        // Calculate adjusted lines needed for this level
+        let adjusted_lines_needed = (base_lines_per_level as f64 * efficiency_factor
+            - back_to_back_reduction
+            - combo_reduction)
+            .max(1.0) as u32;
+
+        if lines_cleared >= self.lines_until_next_level {
+            // Level up
+            let overflow = lines_cleared.saturating_sub(self.lines_until_next_level);
+
+            // Set new goal for next level with slight increase
+            let level_multiplier = 1.0 + (self.level as f64 * 0.02);
+            self.lines_until_next_level =
+                (adjusted_lines_needed as f64 * level_multiplier).max(1.0) as u32;
+
+            // Apply overflow from this clear to next level
+            if overflow > 0 {
+                self.lines_until_next_level = self.lines_until_next_level.saturating_sub(overflow);
+            }
+
+            self.level += 1;
+        } else {
+            self.lines_until_next_level -= lines_cleared;
+        }
     }
 
     fn refill_bag(&mut self) {
@@ -363,6 +444,7 @@ mod tests {
             lines_per_level: 10,
             enable_ghost_piece: false,
             enable_hold,
+            enable_variable_goal: false,
             preview_count: 3,
             das_delay: 250,
             das_repeat: 50,
