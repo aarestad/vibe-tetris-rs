@@ -1,10 +1,11 @@
 use crate::game_state::GameState;
 use crate::tetrimino::TetriminoType;
 use anyhow::Result;
+use ratatui::layout::Alignment;
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
