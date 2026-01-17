@@ -349,3 +349,192 @@ impl GameState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::config::GameConfig;
+    use crate::tetrimino::{Tetrimino, TetriminoType};
+
+    fn make_test_config(enable_hold: bool) -> GameConfig {
+        GameConfig {
+            board_width: 10,
+            board_height: 20,
+            starting_level: 1,
+            lines_per_level: 10,
+            enable_ghost_piece: false,
+            enable_hold,
+            preview_count: 3,
+            das_delay: 250,
+            das_repeat: 50,
+        }
+    }
+
+    #[test]
+    fn test_hold_piece_disabled() {
+        let config = make_test_config(false);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = Some(TetriminoType::I);
+
+        state.hold_piece();
+
+        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::T);
+        assert_eq!(state.held_piece, Some(TetriminoType::I));
+    }
+
+    #[test]
+    fn test_hold_piece_no_current_piece() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = None;
+        state.held_piece = Some(TetriminoType::T);
+
+        state.hold_piece();
+
+        assert_eq!(state.current_piece, None);
+        assert_eq!(state.held_piece, Some(TetriminoType::T));
+    }
+
+    #[test]
+    fn test_hold_piece_no_held_spawns() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = None;
+
+        state.hold_piece();
+
+        assert_eq!(state.held_piece, Some(TetriminoType::T));
+        assert!(state.current_piece.is_some());
+        assert_ne!(state.current_piece.unwrap().kind, TetriminoType::T);
+    }
+
+    #[test]
+    fn test_hold_piece_with_held_swaps() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = Some(TetriminoType::I);
+        let original_next_count = state.next_pieces.len();
+
+        state.hold_piece();
+
+        assert_eq!(state.held_piece, Some(TetriminoType::T));
+        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::I);
+        assert_eq!(state.next_pieces.len(), original_next_count);
+    }
+
+    #[test]
+    fn test_hold_piece_preserves_board() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = Some(TetriminoType::I);
+        let original_cells = state.board.cells().clone();
+
+        state.hold_piece();
+
+        assert_eq!(state.board.cells(), &original_cells);
+    }
+
+    #[test]
+    fn test_hold_piece_next_queue_unchanged_on_swap() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = Some(TetriminoType::I);
+        let original_next = state.next_pieces.clone();
+
+        state.hold_piece();
+
+        assert_eq!(state.next_pieces, original_next);
+    }
+
+    #[test]
+    fn test_hold_piece_updates_next_queue_on_spawn() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = None;
+        let first_next = state.next_pieces[0];
+
+        state.hold_piece();
+
+        assert_ne!(state.next_pieces[0], first_next);
+    }
+
+    #[test]
+    fn test_hold_piece_resets_position_on_swap() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        let mut piece = Tetrimino::new(TetriminoType::T);
+        piece.x = 5;
+        piece.y = 10;
+        piece.rotation = 2;
+        state.current_piece = Some(piece);
+        state.held_piece = Some(TetriminoType::I);
+
+        state.hold_piece();
+
+        let new_piece = state.current_piece.unwrap();
+        assert_eq!(new_piece.x, 0);
+        assert_eq!(new_piece.y, 0);
+        assert_eq!(new_piece.rotation, 0);
+    }
+
+    #[test]
+    fn test_hold_piece_all_types() {
+        for held_type in [
+            TetriminoType::I,
+            TetriminoType::O,
+            TetriminoType::T,
+            TetriminoType::S,
+            TetriminoType::Z,
+            TetriminoType::J,
+            TetriminoType::L,
+        ] {
+            for current_type in [
+                TetriminoType::I,
+                TetriminoType::O,
+                TetriminoType::T,
+                TetriminoType::S,
+                TetriminoType::Z,
+                TetriminoType::J,
+                TetriminoType::L,
+            ] {
+                let config = make_test_config(true);
+                let mut state = super::GameState::new(config);
+
+                state.current_piece = Some(Tetrimino::new(current_type));
+                state.held_piece = Some(held_type);
+
+                state.hold_piece();
+
+                assert_eq!(state.held_piece, Some(current_type));
+                assert_eq!(state.current_piece.unwrap().kind, held_type);
+            }
+        }
+    }
+
+    #[test]
+    fn test_hold_piece_same_type() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.held_piece = Some(TetriminoType::T);
+
+        state.hold_piece();
+
+        assert_eq!(state.held_piece, Some(TetriminoType::T));
+        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::T);
+    }
+}

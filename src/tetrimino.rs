@@ -9,7 +9,7 @@ pub enum TetriminoType {
     L,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tetrimino {
     pub kind: TetriminoType,
     pub x: i32,

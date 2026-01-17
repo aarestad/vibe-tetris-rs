@@ -71,4 +71,9 @@ impl Board {
     pub fn get_height(&self) -> usize {
         self.height
     }
+
+    #[cfg(test)]
+    pub fn cells(&self) -> &Vec<Vec<Option<TetriminoType>>> {
+        &self.cells
+    }
 }
