@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod board;
 pub mod config;
 pub mod game_state;

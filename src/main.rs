@@ -1,3 +1,4 @@
+mod audio;
 mod board;
 mod config;
 mod game;

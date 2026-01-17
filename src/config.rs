@@ -40,7 +40,7 @@ impl GameConfig {
         Ok(config)
     }
 
-    pub fn save_to_file(&self, path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn _save_to_file(&self, path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         let contents = serde_json::to_string_pretty(self)?;
         fs::write(path, contents)?;
         Ok(())
