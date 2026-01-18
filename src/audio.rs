@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound::WavReader;
@@ -10,13 +10,15 @@ use hound::WavReader;
 struct AudioState {
     stream: cpal::Stream,
     playing: Arc<AtomicBool>,
+    volume: Arc<AtomicU32>,
 }
 
 pub struct AudioPlayer {
     use_audio: bool,
     state: Option<Arc<AudioState>>,
-    sample_rate: u32,
+    device_sample_rate: u32,
     channels: u16,
+    volume: f32,
 }
 
 impl AudioPlayer {
@@ -29,8 +31,9 @@ impl AudioPlayer {
             Self {
                 use_audio: false,
                 state: None,
-                sample_rate: 44100,
+                device_sample_rate: 44100,
                 channels: 2,
+                volume: 1.0,
             }
         })
     }
@@ -46,14 +49,15 @@ impl AudioPlayer {
             .default_output_config()
             .map_err(|e| format!("Failed to get default output config: {}", e))?;
 
-        let sample_rate = config.sample_rate().0;
+        let sample_rate = config.sample_rate();
         let channels = config.channels();
 
         Ok(Self {
             use_audio: true,
             state: None,
-            sample_rate,
+            device_sample_rate: sample_rate,
             channels,
+            volume: 1.0,
         })
     }
 
@@ -64,7 +68,7 @@ impl AudioPlayer {
 
         self.stop();
 
-        let audio_data = match Self::load_wav(&path) {
+        let (audio_data, src_rate) = match Self::load_wav(&path) {
             Ok(data) => data,
             Err(e) => {
                 eprintln!(
@@ -76,10 +80,12 @@ impl AudioPlayer {
             }
         };
 
-        self.play_audio_data(&audio_data);
+        let resampled = Self::resample(&audio_data, src_rate, self.device_sample_rate);
+
+        self.play_audio_data(&resampled);
     }
 
-    fn load_wav(path: &PathBuf) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    fn load_wav(path: &PathBuf) -> Result<(Vec<f32>, u32), Box<dyn std::error::Error>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let wav = WavReader::new(reader)?;
@@ -101,7 +107,32 @@ impl AudioPlayer {
             }
         }
 
-        Ok(output)
+        Ok((output, spec.sample_rate))
+    }
+
+    fn resample(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
+        if src_rate == dst_rate {
+            return samples.to_vec();
+        }
+
+        let ratio = src_rate as f64 / dst_rate as f64;
+        let dst_len = (samples.len() as f64 / ratio).ceil() as usize;
+        let mut resampled = Vec::with_capacity(dst_len);
+
+        for i in 0..dst_len {
+            let src_pos = i as f64 * ratio;
+            let src_idx = src_pos.floor() as usize;
+            let frac = src_pos.fract() as f32;
+
+            if src_idx + 1 < samples.len() {
+                let sample = samples[src_idx] * (1.0 - frac) + samples[src_idx + 1] * frac;
+                resampled.push(sample);
+            } else if src_idx < samples.len() {
+                resampled.push(samples[src_idx]);
+            }
+        }
+
+        resampled
     }
 
     fn play_audio_data(&mut self, samples: &[f32]) {
@@ -129,7 +160,7 @@ impl AudioPlayer {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let config = cpal::StreamConfig {
             channels: self.channels,
-            sample_rate: cpal::SampleRate(self.sample_rate),
+            sample_rate: self.device_sample_rate,
             buffer_size: cpal::BufferSize::Default,
         };
 
@@ -148,6 +179,8 @@ impl AudioPlayer {
         let playing_clone = playing.clone();
         let samples = samples.to_vec();
         let sample_count = samples.len();
+        let volume = Arc::new(AtomicU32::new((self.volume * u32::MAX as f32) as u32));
+        let volume_for_callback = volume.clone();
 
         let sample_pos = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let sample_pos_clone = sample_pos.clone();
@@ -161,12 +194,14 @@ impl AudioPlayer {
             move |data: &mut [f32], _| {
                 if playing_clone.load(Ordering::SeqCst) {
                     let mut current_pos = sample_pos_clone.load(Ordering::SeqCst);
+                    let current_volume =
+                        volume_for_callback.load(Ordering::SeqCst) as f32 / u32::MAX as f32;
 
                     for sample in data.iter_mut() {
                         if current_pos >= sample_count {
                             current_pos = 0;
                         }
-                        *sample = (samples[current_pos] * gain).clamp(-1.0, 1.0);
+                        *sample = (samples[current_pos] * gain * current_volume).clamp(-1.0, 1.0);
                         current_pos += 1;
                     }
 
@@ -184,7 +219,11 @@ impl AudioPlayer {
         stream.play()?;
 
         #[allow(clippy::arc_with_non_send_sync)]
-        let state = Arc::new(AudioState { stream, playing });
+        let state = Arc::new(AudioState {
+            stream,
+            playing,
+            volume,
+        });
 
         self.state = Some(state);
 
@@ -220,7 +259,14 @@ impl AudioPlayer {
         }
     }
 
-    pub fn set_volume(&self, _volume: f32) {}
+    pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.clamp(0.0, 1.0);
+        if let Some(state) = &self.state {
+            state
+                .volume
+                .store((self.volume * u32::MAX as f32) as u32, Ordering::SeqCst);
+        }
+    }
 
     #[allow(dead_code)]
     pub fn is_playing(&self) -> bool {

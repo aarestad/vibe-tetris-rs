@@ -95,11 +95,6 @@ impl Game {
         if audio_path.exists() {
             self.audio.play_background_music(audio_path);
             self.audio.set_volume(0.5);
-        } else {
-            let midi_path = PathBuf::from("tetris_main_theme.mid");
-            if midi_path.exists() {
-                self.audio.play_background_music(midi_path);
-            }
         }
     }
 
