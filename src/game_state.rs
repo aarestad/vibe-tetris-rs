@@ -350,8 +350,7 @@ impl GameState {
     }
 
     fn populate_next_pieces(&mut self) {
-        // Ensure we have enough next pieces (typically 3-5 pieces shown)
-        let target_count = 5;
+        let target_count = self.config.preview_count.clamp(1, 6);
 
         while self.next_pieces.len() < target_count {
             if self.bag.is_empty() {
@@ -361,7 +360,6 @@ impl GameState {
             if let Some(piece) = self.bag.pop() {
                 self.next_pieces.push(piece);
             } else {
-                // This should never happen, but handle it gracefully
                 self.refill_bag();
                 if let Some(piece) = self.bag.pop() {
                     self.next_pieces.push(piece);

@@ -234,6 +234,9 @@ impl Renderer {
     }
 
     fn draw_next_pieces(f: &mut Frame, area: Rect, state: &GameState) {
+        let preview_count = state.config.preview_count.clamp(1, 6);
+        let display_count = preview_count.min(state.next_pieces.len());
+
         let mut lines = vec![
             Line::from(Span::styled(
                 "NEXT",
@@ -244,14 +247,10 @@ impl Renderer {
             Line::from(""),
         ];
 
-        for &piece_type in state.next_pieces.iter().take(1) {
-            let piece_lines = Self::get_piece_display(piece_type);
-            lines.extend(piece_lines);
-            lines.push(Line::from(""));
-        }
-
-        for &piece_type in state.next_pieces.iter().skip(1).take(2) {
-            lines.push(Line::from(""));
+        for (i, &piece_type) in state.next_pieces.iter().enumerate().take(display_count) {
+            if i > 0 {
+                lines.push(Line::from(""));
+            }
             let piece_lines = Self::get_piece_display(piece_type);
             lines.extend(piece_lines);
         }
