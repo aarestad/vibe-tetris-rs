@@ -1,21 +1,22 @@
 use std::fs::File;
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::Duration;
 
-use rodio::{Sink, Source};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use hound::WavReader;
 
 struct AudioState {
-    sink: Sink,
+    stream: cpal::Stream,
     playing: Arc<AtomicBool>,
 }
 
 pub struct AudioPlayer {
     use_audio: bool,
     state: Option<Arc<AudioState>>,
-    join_handle: Option<thread::JoinHandle<()>>,
+    sample_rate: u32,
+    channels: u16,
 }
 
 impl AudioPlayer {
@@ -28,44 +29,46 @@ impl AudioPlayer {
             Self {
                 use_audio: false,
                 state: None,
-                join_handle: None,
+                sample_rate: 44100,
+                channels: 2,
             }
         })
     }
 
     fn try_new() -> Result<Self, Box<dyn std::error::Error>> {
-        use rodio::OutputStreamBuilder;
+        let host = cpal::default_host();
 
-        let stream = OutputStreamBuilder::open_default_stream()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        let sink = Sink::connect_new(stream.mixer());
-        let playing = Arc::new(AtomicBool::new(false));
+        let device = host
+            .default_output_device()
+            .ok_or("No default output device found")?;
 
-        let state = Arc::new(AudioState { sink, playing });
+        let config = device
+            .default_output_config()
+            .map_err(|e| format!("Failed to get default output config: {}", e))?;
 
-        drop(stream);
+        let sample_rate = config.sample_rate().0;
+        let channels = config.channels();
 
         Ok(Self {
             use_audio: true,
-            state: Some(state),
-            join_handle: None,
+            state: None,
+            sample_rate,
+            channels,
         })
     }
 
     pub fn play_background_music(&mut self, path: PathBuf) {
-        if !self.use_audio || self.state.is_none() {
+        if !self.use_audio {
             return;
         }
 
-        let state = self.state.as_ref().unwrap().clone();
-
         self.stop();
 
-        let file = match File::open(&path) {
-            Ok(f) => f,
+        let audio_data = match Self::load_wav(&path) {
+            Ok(data) => data,
             Err(e) => {
                 eprintln!(
-                    "Warning: Failed to open audio file {}: {}",
+                    "Warning: Failed to load audio file {}: {}",
                     path.display(),
                     e
                 );
@@ -73,28 +76,119 @@ impl AudioPlayer {
             }
         };
 
-        let source = match rodio::Decoder::new(file) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Warning: Failed to decode audio file: {}", e);
+        self.play_audio_data(&audio_data);
+    }
+
+    fn load_wav(path: &PathBuf) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let wav = WavReader::new(reader)?;
+
+        let spec = wav.spec();
+        let samples: Vec<i32> = wav.into_samples().collect::<Result<Vec<i32>, _>>()?;
+
+        let mut output = Vec::with_capacity(samples.len());
+
+        if spec.bits_per_sample == 16 {
+            for &sample in &samples {
+                let normalized = sample as f32 / i16::MAX as f32;
+                output.push(normalized);
+            }
+        } else {
+            for &sample in &samples {
+                let normalized = sample as f32 / i32::MAX as f32;
+                output.push(normalized);
+            }
+        }
+
+        Ok(output)
+    }
+
+    fn play_audio_data(&mut self, samples: &[f32]) {
+        let host = cpal::default_host();
+
+        let device = match host.default_output_device() {
+            Some(d) => d,
+            None => {
+                eprintln!("Warning: No default output device found");
                 return;
             }
         };
 
-        let looping_source = source.repeat_infinite();
+        if let Ok(()) = self.setup_stream(device, samples) {
+            return;
+        }
 
-        state.playing.store(true, Ordering::SeqCst);
+        eprintln!("Warning: Could not set up audio stream");
+    }
 
-        let handle = thread::spawn(move || {
-            state.sink.append(looping_source);
-            state.sink.play();
+    fn setup_stream(
+        &mut self,
+        device: cpal::Device,
+        samples: &[f32],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let config = cpal::StreamConfig {
+            channels: self.channels,
+            sample_rate: cpal::SampleRate(self.sample_rate),
+            buffer_size: cpal::BufferSize::Default,
+        };
 
-            while state.playing.load(Ordering::SeqCst) {
-                thread::sleep(Duration::from_millis(100));
-            }
-        });
+        let sum_sq: f32 = samples.iter().map(|s| s * s).sum();
+        let rms = (sum_sq / samples.len() as f32).sqrt();
 
-        self.join_handle = Some(handle);
+        let gain = if rms < 0.01 {
+            8.0
+        } else if rms < 0.1 {
+            4.0
+        } else {
+            1.0
+        };
+
+        let playing = Arc::new(AtomicBool::new(true));
+        let playing_clone = playing.clone();
+        let samples = samples.to_vec();
+        let sample_count = samples.len();
+
+        let sample_pos = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sample_pos_clone = sample_pos.clone();
+
+        let err_fn = |err| {
+            eprintln!("[AUDIO] Stream error: {}", err);
+        };
+
+        let stream = device.build_output_stream(
+            &config,
+            move |data: &mut [f32], _| {
+                if playing_clone.load(Ordering::SeqCst) {
+                    let mut current_pos = sample_pos_clone.load(Ordering::SeqCst);
+
+                    for sample in data.iter_mut() {
+                        if current_pos >= sample_count {
+                            current_pos = 0;
+                        }
+                        *sample = (samples[current_pos] * gain).clamp(-1.0, 1.0);
+                        current_pos += 1;
+                    }
+
+                    sample_pos_clone.store(current_pos, Ordering::SeqCst);
+                } else {
+                    for sample in data.iter_mut() {
+                        *sample = 0.0;
+                    }
+                }
+            },
+            err_fn,
+            None,
+        )?;
+
+        stream.play()?;
+
+        #[allow(clippy::arc_with_non_send_sync)]
+        let state = Arc::new(AudioState { stream, playing });
+
+        self.state = Some(state);
+
+        Ok(())
     }
 
     pub fn stop(&mut self) {
@@ -102,58 +196,35 @@ impl AudioPlayer {
             return;
         }
 
-        self.playing_flag().store(false, Ordering::SeqCst);
-
-        if let Some(state) = self.state.as_ref() {
-            state.sink.stop();
+        if let Some(state) = self.state.take() {
+            state.playing.store(false, Ordering::SeqCst);
+            drop(state);
         }
 
-        if let Some(handle) = self.join_handle.take() {
-            let _ = handle.join();
-        }
+        self.state = None;
     }
 
     pub fn pause(&self) {
-        if !self.use_audio {
-            return;
-        }
-        if let Some(state) = self.state.as_ref() {
-            state.sink.pause();
+        if let Some(state) = self.state.as_ref()
+            && let Err(e) = state.stream.pause()
+        {
+            eprintln!("[AUDIO] Failed to pause stream: {}", e);
         }
     }
 
     pub fn resume(&self) {
-        if !self.use_audio {
-            return;
-        }
-        if let Some(state) = self.state.as_ref() {
-            state.sink.play();
+        if let Some(state) = self.state.as_ref()
+            && let Err(e) = state.stream.play()
+        {
+            eprintln!("[AUDIO] Failed to resume stream: {}", e);
         }
     }
 
-    pub fn set_volume(&self, volume: f32) {
-        if !self.use_audio {
-            return;
-        }
-        if let Some(state) = self.state.as_ref() {
-            state.sink.set_volume(volume.clamp(0.0, 1.0));
-        }
-    }
+    pub fn set_volume(&self, _volume: f32) {}
 
     #[allow(dead_code)]
     pub fn is_playing(&self) -> bool {
-        if !self.use_audio {
-            return false;
-        }
-        if let Some(state) = self.state.as_ref() {
-            !state.sink.is_paused() && self.playing_flag().load(Ordering::SeqCst)
-        } else {
-            false
-        }
-    }
-
-    fn playing_flag(&self) -> &Arc<AtomicBool> {
-        self.state.as_ref().map(|s| &s.playing).unwrap()
+        self.state.is_some()
     }
 }
 

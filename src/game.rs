@@ -90,7 +90,7 @@ impl Game {
 
     fn start_music(&mut self) {
         let mut audio_path = PathBuf::from(env!("OUT_DIR"));
-        audio_path.push("tetris_theme.ogg");
+        audio_path.push("tetris_theme.wav");
 
         if audio_path.exists() {
             self.audio.play_background_music(audio_path);
