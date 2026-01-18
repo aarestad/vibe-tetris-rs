@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph},
 };
 use std::io::Stdout;
 
@@ -30,73 +30,85 @@ impl Renderer {
 
     fn draw_game(f: &mut Frame, state: &GameState) {
         let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(1)
+            .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(3),
-                Constraint::Min(state.board.get_height() as u16 + 2),
+                Constraint::Length(14),
+                Constraint::Min(state.board.get_width() as u16 * 2 + 2),
+                Constraint::Length(14),
             ])
             .split(f.area());
 
-        let info_chunk = chunks[0];
-        let game_chunk = chunks[1];
+        let left_chunk = chunks[0];
+        let board_chunk = chunks[1];
+        let right_chunk = chunks[2];
 
-        let game_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(state.board.get_width() as u16 * 2 + 2),
-                Constraint::Min(0),
-            ])
-            .split(game_chunk);
-
-        let board_chunk = game_chunks[0];
-        let sidebar_chunk = game_chunks[1];
-
-        let sidebar_chunks = Layout::default()
+        let left_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-            .split(sidebar_chunk);
+            .constraints([Constraint::Length(10), Constraint::Min(0)])
+            .split(left_chunk);
 
-        let next_chunk = sidebar_chunks[0];
-        let hold_chunk = sidebar_chunks[1];
+        let hold_chunk = left_chunks[0];
+        let info_chunk = left_chunks[1];
 
+        Self::draw_held_piece(f, hold_chunk, state);
         Self::draw_info(f, info_chunk, state);
         Self::draw_board(f, board_chunk, state);
-        Self::draw_next_pieces(f, next_chunk, state);
-        Self::draw_held_piece(f, hold_chunk, state);
+        Self::draw_next_pieces(f, right_chunk, state);
     }
 
     fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
-        let info_text = vec![Line::from(vec![
-            Span::styled(" SCORE: ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                format!("{:<8}", state.score),
+        let lines = vec![
+            Line::from(vec![Span::styled(
+                "SCORE",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(vec![Span::styled(
+                format!("{}", state.score),
                 Style::default().fg(Color::White),
-            ),
-            Span::styled(" LEVEL: ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                format!("{:<4}", state.level),
+            )]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "LEVEL",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(vec![Span::styled(
+                format!("{}", state.level),
                 Style::default().fg(Color::White),
-            ),
-            Span::styled(" LINES: ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                format!("{:<4}", state.lines_cleared),
+            )]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "LINES",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(vec![Span::styled(
+                format!("{}", state.lines_cleared),
                 Style::default().fg(Color::White),
-            ),
-            Span::styled(" TO GO: ", Style::default().fg(Color::Cyan)),
-            Span::styled(
-                format!("{:<4}", state.lines_until_next_level),
+            )]),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "TO GO",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(vec![Span::styled(
+                format!("{}", state.lines_until_next_level),
                 Style::default().fg(Color::White),
-            ),
-        ])];
+            )]),
+        ];
 
-        let paragraph = Paragraph::new(info_text)
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan)),
-            );
+        let paragraph = Paragraph::new(lines).block(
+            Block::default()
+                .title(" INFO ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
 
         f.render_widget(paragraph, area);
     }
@@ -232,17 +244,19 @@ impl Renderer {
             Line::from(""),
         ];
 
-        for (i, &piece_type) in state.next_pieces.iter().take(3).enumerate() {
-            if i > 0 {
-                lines.push(Line::from(""));
-                lines.push(Line::from(""));
-            }
+        for &piece_type in state.next_pieces.iter().take(1) {
+            let piece_lines = Self::get_piece_display(piece_type);
+            lines.extend(piece_lines);
+            lines.push(Line::from(""));
+        }
 
+        for &piece_type in state.next_pieces.iter().skip(1).take(2) {
+            lines.push(Line::from(""));
             let piece_lines = Self::get_piece_display(piece_type);
             lines.extend(piece_lines);
         }
 
-        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+        let paragraph = Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan)),
@@ -266,13 +280,13 @@ impl Renderer {
             let piece_lines = Self::get_piece_display(piece_type);
             lines.extend(piece_lines);
         } else {
-            lines.push(Line::from("  "));
-            lines.push(Line::from("  "));
-            lines.push(Line::from("  "));
-            lines.push(Line::from("  "));
+            lines.push(Line::from(""));
+            lines.push(Line::from(""));
+            lines.push(Line::from(""));
+            lines.push(Line::from(""));
         }
 
-        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+        let paragraph = Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan)),
