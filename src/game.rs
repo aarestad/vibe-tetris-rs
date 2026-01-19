@@ -23,7 +23,11 @@ pub struct Game {
 impl Game {
     pub fn new(config: GameConfig) -> Result<Self> {
         let renderer = Renderer::new()?;
-        let audio = if config.enable_sound { Some(AudioPlayer::new()) } else { None };
+        let audio = if config.enable_sound {
+            Some(AudioPlayer::new())
+        } else {
+            None
+        };
         let state = GameState::new(config);
         let input = InputHandler::new();
 
@@ -94,11 +98,11 @@ impl Game {
         let mut audio_path = PathBuf::from(env!("OUT_DIR"));
         audio_path.push("tetris_theme.wav");
 
-        if audio_path.exists() {
-            if let Some(a) = self.audio.as_mut() {
-                a.play_background_music(audio_path);
-                a.set_volume(0.5);
-            }
+        if audio_path.exists()
+            && let Some(a) = self.audio.as_mut()
+        {
+            a.play_background_music(audio_path);
+            a.set_volume(0.5);
         }
     }
 
@@ -167,7 +171,7 @@ impl Game {
                         break;
                     }
                     InputAction::Quit => {
-                        if  let Some(a) = self.audio.as_mut() {
+                        if let Some(a) = self.audio.as_mut() {
                             a.stop();
                         }
                         self.state.game_over = true;
