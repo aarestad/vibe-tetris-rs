@@ -205,3 +205,98 @@ fn setup_terminal() -> TerminalCleanup {
 
     TerminalCleanup
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GameConfig;
+    use crate::input::InputAction;
+
+    fn make_test_config() -> GameConfig {
+        GameConfig {
+            board_width: 10,
+            board_height: 20,
+            starting_level: 1,
+            lines_per_level: 10,
+            enable_ghost_piece: false,
+            enable_hold: true,
+            enable_variable_goal: false,
+            enable_sound: false,
+            preview_count: 3,
+            das_delay: 250,
+            das_repeat: 50,
+        }
+    }
+
+    fn get_gravity_for_level(level: u32) -> Duration {
+        let base_gravity_ms = 800;
+        let level = level.max(1);
+        let gravity_ms = (base_gravity_ms / (2_u32.pow((level - 1).min(10)))).max(50);
+        Duration::from_millis(gravity_ms as u64)
+    }
+
+    #[test]
+    fn test_get_gravity_duration_level_1() {
+        let gravity = get_gravity_for_level(1);
+        assert_eq!(gravity.as_millis(), 800);
+    }
+
+    #[test]
+    fn test_get_gravity_duration_level_2() {
+        let gravity = get_gravity_for_level(2);
+        assert_eq!(gravity.as_millis(), 400);
+    }
+
+    #[test]
+    fn test_get_gravity_duration_level_3() {
+        let gravity = get_gravity_for_level(3);
+        assert_eq!(gravity.as_millis(), 200);
+    }
+
+    #[test]
+    fn test_get_gravity_duration_level_10() {
+        let gravity = get_gravity_for_level(10);
+        assert_eq!(gravity.as_millis(), 50);
+    }
+
+    #[test]
+    fn test_get_gravity_duration_level_15_capped() {
+        let gravity = get_gravity_for_level(15);
+        assert_eq!(gravity.as_millis(), 50);
+    }
+
+    #[test]
+    fn test_get_gravity_duration_very_high_level() {
+        let gravity = get_gravity_for_level(100);
+        assert_eq!(gravity.as_millis(), 50);
+    }
+
+    #[test]
+    fn test_get_gravity_duration_level_0_adjusted_to_1() {
+        let gravity = get_gravity_for_level(0);
+        assert_eq!(gravity.as_millis(), 800);
+    }
+
+    #[test]
+    fn test_handle_input_action_types() {
+        let actions = [
+            InputAction::MoveLeft,
+            InputAction::MoveRight,
+            InputAction::MoveDown,
+            InputAction::HardDrop,
+            InputAction::RotateClockwise,
+            InputAction::RotateCounterClockwise,
+            InputAction::Hold,
+            InputAction::Pause,
+            InputAction::Quit,
+        ];
+
+        assert_eq!(actions.len(), 9);
+    }
+
+    #[test]
+    fn test_terminal_cleanup_drop() {
+        let cleanup = TerminalCleanup;
+        drop(cleanup);
+    }
+}

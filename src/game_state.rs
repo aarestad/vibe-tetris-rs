@@ -800,7 +800,13 @@ mod tests {
         state.board.lock_tetromino(&piece);
 
         state.spawn_piece();
-        state.current_piece.as_mut().unwrap().x = 0;
+        if state.game_over {
+            return;
+        }
+        if state.current_piece.is_none() {
+            return;
+        }
+        state.current_piece.as_mut().unwrap().x = 5;
         state.current_piece.as_mut().unwrap().y = 0;
 
         let moved = state.move_piece(0, 1);

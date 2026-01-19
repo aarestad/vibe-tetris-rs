@@ -23,6 +23,16 @@ impl Renderer {
         Ok(Self { terminal })
     }
 
+    #[cfg(test)]
+    pub fn new_for_testing() -> Self
+    where
+        Self: Sized,
+    {
+        Self {
+            terminal: unsafe { std::mem::zeroed() },
+        }
+    }
+
     pub fn render(&mut self, state: &GameState) -> Result<()> {
         self.terminal.draw(|f| Self::draw_game(f, state))?;
         Ok(())
