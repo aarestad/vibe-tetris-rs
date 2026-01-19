@@ -443,6 +443,7 @@ mod tests {
             enable_ghost_piece: false,
             enable_hold,
             enable_variable_goal: false,
+            enable_sound: false,
             preview_count: 3,
             das_delay: 250,
             das_repeat: 50,

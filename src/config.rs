@@ -11,6 +11,7 @@ pub struct GameConfig {
     pub enable_ghost_piece: bool,
     pub enable_hold: bool,
     pub enable_variable_goal: bool,
+    pub enable_sound: bool,
     pub preview_count: usize,
     pub das_delay: u64,  // Delayed Auto Shift in ms
     pub das_repeat: u64, // Auto-repeat rate in ms
@@ -26,6 +27,7 @@ impl Default for GameConfig {
             enable_ghost_piece: true,
             enable_hold: true,
             enable_variable_goal: false,
+            enable_sound: true,
             preview_count: 3,
             das_delay: 250,
             das_repeat: 50,

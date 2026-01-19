@@ -17,15 +17,15 @@ pub struct Game {
     state: GameState,
     renderer: Renderer,
     input: InputHandler,
-    audio: AudioPlayer,
+    audio: Option<AudioPlayer>,
 }
 
 impl Game {
     pub fn new(config: GameConfig) -> Result<Self> {
         let renderer = Renderer::new()?;
+        let audio = if config.enable_sound { Some(AudioPlayer::new()) } else { None };
         let state = GameState::new(config);
         let input = InputHandler::new();
-        let audio = AudioPlayer::new();
 
         Ok(Self {
             state,
@@ -69,7 +69,9 @@ impl Game {
                 self.renderer.render_game_over(&self.state)?;
 
                 // Stop music on game over
-                self.audio.stop();
+                if let Some(a) = self.audio.as_mut() {
+                    a.stop();
+                }
 
                 let _ = stdout().flush();
                 while self.input.poll_input().is_none() {
@@ -93,8 +95,10 @@ impl Game {
         audio_path.push("tetris_theme.wav");
 
         if audio_path.exists() {
-            self.audio.play_background_music(audio_path);
-            self.audio.set_volume(0.5);
+            if let Some(a) = self.audio.as_mut() {
+                a.play_background_music(audio_path);
+                a.set_volume(0.5);
+            }
         }
     }
 
@@ -133,7 +137,10 @@ impl Game {
             }
             InputAction::Quit => {
                 self.state.game_over = true;
-                self.audio.stop();
+
+                if let Some(a) = self.audio.as_mut() {
+                    a.stop();
+                }
             }
         }
 
@@ -142,7 +149,9 @@ impl Game {
 
     fn handle_pause(&mut self) -> Result<()> {
         // Pause music when pausing game
-        self.audio.pause();
+        if let Some(a) = self.audio.as_mut() {
+            a.pause();
+        }
 
         self.renderer.render_pause(&self.state)?;
 
@@ -151,11 +160,16 @@ impl Game {
                 match action {
                     InputAction::Pause => {
                         // Resume music when unpausing
-                        self.audio.resume();
+                        if let Some(a) = self.audio.as_mut() {
+                            a.resume();
+                        }
+
                         break;
                     }
                     InputAction::Quit => {
-                        self.audio.stop();
+                        if  let Some(a) = self.audio.as_mut() {
+                            a.stop();
+                        }
                         self.state.game_over = true;
                         break;
                     }
