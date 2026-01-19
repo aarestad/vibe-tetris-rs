@@ -39,6 +39,16 @@ impl Board {
         }
     }
 
+    pub fn get_full_lines(&self) -> Vec<usize> {
+        let mut full_lines = Vec::new();
+        for y in 0..self.height {
+            if self.cells[y].iter().all(|cell| cell.is_some()) {
+                full_lines.push(y);
+            }
+        }
+        full_lines
+    }
+
     pub fn clear_lines(&mut self) -> u32 {
         let mut lines_cleared = 0;
         let mut y = self.height - 1;

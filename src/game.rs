@@ -59,7 +59,11 @@ impl Game {
                 self.handle_input(action)?;
             }
 
-            if now.duration_since(last_gravity) >= gravity_duration {
+            if self.state.pending_line_clear {
+                if !self.state.is_line_clear_animation_active() {
+                    self.state.complete_line_clear();
+                }
+            } else if now.duration_since(last_gravity) >= gravity_duration {
                 if !self.state.move_piece(0, 1) {
                     self.state.lock_current_piece();
                 }

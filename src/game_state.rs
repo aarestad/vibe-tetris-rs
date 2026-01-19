@@ -3,6 +3,7 @@ use crate::config::GameConfig;
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use rand::rng;
 use rand::seq::SliceRandom;
+use std::time::Instant;
 
 pub struct GameState {
     pub board: Board,
@@ -20,6 +21,14 @@ pub struct GameState {
     combo_count: u32,
     back_to_back_active: bool,
     last_was_special: bool,
+    pub line_clear_animation: Option<LineClearAnimation>,
+    pub pending_line_clear: bool,
+}
+
+pub struct LineClearAnimation {
+    pub cleared_rows: Vec<usize>,
+    pub start_time: Instant,
+    pub total_lines: u32,
 }
 
 impl GameState {
@@ -43,6 +52,8 @@ impl GameState {
             combo_count: 0,
             back_to_back_active: false,
             last_was_special: false,
+            line_clear_animation: None,
+            pending_line_clear: false,
         };
 
         // Initialize the first bag and next pieces
@@ -158,11 +169,38 @@ impl GameState {
             self.board.lock_tetromino(&piece);
             self.pieces_placed += 1;
 
-            let lines = self.board.clear_lines();
-            self.lines_cleared += lines;
-            self.update_score(lines, lines > 0);
-            self.spawn_piece();
+            let cleared_rows = self.board.get_full_lines();
+            let lines = cleared_rows.len() as u32;
+
+            if lines > 0 {
+                self.line_clear_animation = Some(LineClearAnimation {
+                    cleared_rows,
+                    start_time: Instant::now(),
+                    total_lines: lines,
+                });
+                self.pending_line_clear = true;
+            } else {
+                self.update_score(0, false);
+                self.spawn_piece();
+            }
         }
+    }
+
+    pub fn complete_line_clear(&mut self) {
+        if !self.pending_line_clear {
+            return;
+        }
+        self.pending_line_clear = false;
+
+        let lines = self.board.clear_lines();
+        self.lines_cleared += lines;
+
+        if lines > 0 {
+            self.update_score(lines, true);
+        }
+
+        self.line_clear_animation = None;
+        self.spawn_piece();
     }
 
     fn update_score(&mut self, lines: u32, _lines_cleared: bool) {
@@ -425,6 +463,27 @@ impl GameState {
                 self.spawn_piece();
             }
             self.held_piece = Some(current.kind);
+        }
+    }
+
+    pub fn is_line_clear_animation_active(&self) -> bool {
+        if let Some(ref anim) = self.line_clear_animation {
+            let elapsed = anim.start_time.elapsed().as_millis() as u64;
+            let duration_ms = anim.total_lines as u64 * 500;
+            elapsed < duration_ms
+        } else {
+            false
+        }
+    }
+
+    pub fn should_show_cleared_rows(&self) -> bool {
+        if let Some(ref anim) = self.line_clear_animation {
+            let elapsed = anim.start_time.elapsed().as_millis() as u64;
+            let blink_interval = 250;
+            let blink_num = elapsed / blink_interval;
+            blink_num.is_multiple_of(2)
+        } else {
+            false
         }
     }
 }

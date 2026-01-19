@@ -122,6 +122,13 @@ impl Renderer {
             .enable_ghost_piece
             .then(|| Self::calculate_ghost_y(state));
 
+        let show_cleared_animation = state.should_show_cleared_rows();
+        let cleared_rows: Vec<usize> = state
+            .line_clear_animation
+            .as_ref()
+            .map(|anim| anim.cleared_rows.clone())
+            .unwrap_or_default();
+
         let mut board_lines = Vec::with_capacity(board_height);
 
         for y in 0..board_height {
@@ -129,12 +136,18 @@ impl Renderer {
 
             line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
 
+            let is_cleared_row = show_cleared_animation && cleared_rows.contains(&y);
+
             for x in 0..board_width {
                 let (cell_content, is_ghost) = Self::get_combined_cell(state, ghost_y, x, y);
                 let color = Self::get_piece_color(cell_content);
 
                 let block_str = "██";
-                let style = if is_ghost {
+                let style = if is_cleared_row {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::REVERSED)
+                } else if is_ghost {
                     Style::default().fg(color).add_modifier(Modifier::DIM)
                 } else {
                     Style::default().fg(color)
