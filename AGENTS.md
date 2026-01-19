@@ -109,8 +109,10 @@ Rotation.
 ## File Structure
 
 ```
+build.rs             # Build script to transform MIDI to WAV; requires fluidsynth
 src/
 ├── main.rs          # Entry point and application setup
+├── audio.rs         # Audio handling
 ├── game.rs          # Main game loop and input handling
 ├── game_state.rs    # Game state management and logic
 ├── board.rs         # Game board and collision detection
