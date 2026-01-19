@@ -79,7 +79,8 @@ impl Game {
                     a.stop();
                 }
 
-                let _ = stdout().flush();
+                stdout().flush()?;
+
                 while self.input.poll_input().is_none() {
                     std::thread::sleep(Duration::from_millis(16));
                 }
