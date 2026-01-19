@@ -81,7 +81,7 @@ impl Game {
 
                 stdout().flush()?;
 
-                while self.input.poll_input().is_none() {
+                while !self.input.has_input() {
                     std::thread::sleep(Duration::from_millis(16));
                 }
                 break;

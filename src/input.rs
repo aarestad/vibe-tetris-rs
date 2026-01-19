@@ -38,6 +38,10 @@ impl InputHandler {
         None
     }
 
+    pub fn has_input(&self) -> bool {
+        event::poll(std::time::Duration::from_millis(0)).unwrap_or(false)
+    }
+
     fn key_to_action(&self, key_code: KeyCode) -> Option<InputAction> {
         match key_code {
             // Movement keys
