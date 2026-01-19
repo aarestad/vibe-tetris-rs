@@ -685,4 +685,597 @@ mod tests {
         assert_eq!(state.held_piece, Some(TetriminoType::T));
         assert_eq!(state.current_piece.unwrap().kind, TetriminoType::T);
     }
+
+    #[test]
+    fn test_game_state_new() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert_eq!(state.board.get_width(), 10);
+        assert_eq!(state.board.get_height(), 20);
+        assert_eq!(state.score, 0);
+        assert_eq!(state.level, 1);
+        assert_eq!(state.lines_cleared, 0);
+        assert!(!state.game_over);
+        assert!(state.current_piece.is_none());
+        assert_eq!(state.next_pieces.len(), 3);
+        assert!(state.held_piece.is_none());
+    }
+
+    #[test]
+    fn test_game_state_new_custom_config() {
+        let config = GameConfig {
+            board_width: 15,
+            board_height: 25,
+            starting_level: 5,
+            lines_per_level: 15,
+            enable_ghost_piece: true,
+            enable_hold: true,
+            enable_variable_goal: true,
+            enable_sound: true,
+            preview_count: 5,
+            das_delay: 200,
+            das_repeat: 30,
+        };
+        let state = super::GameState::new(config);
+
+        assert_eq!(state.board.get_width(), 15);
+        assert_eq!(state.board.get_height(), 25);
+        assert_eq!(state.level, 5);
+        assert_eq!(state.lines_until_next_level, 15);
+    }
+
+    #[test]
+    fn test_spawn_piece() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        assert!(state.current_piece.is_none());
+
+        state.spawn_piece();
+
+        assert!(state.current_piece.is_some());
+        assert_eq!(state.next_pieces.len(), 3);
+    }
+
+    #[test]
+    fn test_spawn_piece_game_over() {
+        let config = make_test_config(true);
+        let mut new_state = super::GameState::new(config);
+
+        for y in 0..20 {
+            for x in 0..10 {
+                new_state.board.cells_mut()[y][x] = Some(TetriminoType::I);
+            }
+        }
+
+        new_state.spawn_piece();
+
+        assert!(new_state.game_over);
+    }
+
+    #[test]
+    fn test_move_piece_success() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.spawn_piece();
+        let piece_x = state.current_piece.unwrap().x;
+        let moved = state.move_piece(1, 0);
+
+        assert!(moved);
+        assert_eq!(state.current_piece.unwrap().x, piece_x + 1);
+    }
+
+    #[test]
+    fn test_move_piece_invalid_position() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::I));
+        state.current_piece.as_mut().unwrap().x = -5;
+
+        let moved = state.move_piece(0, 1);
+
+        assert!(!moved);
+    }
+
+    #[test]
+    fn test_move_piece_no_current_piece() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = None;
+        let moved = state.move_piece(1, 0);
+
+        assert!(!moved);
+    }
+
+    #[test]
+    fn test_move_piece_collision_with_board() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        let piece = Tetrimino::new(TetriminoType::O);
+        state.board.lock_tetromino(&piece);
+
+        state.spawn_piece();
+        state.current_piece.as_mut().unwrap().x = 0;
+        state.current_piece.as_mut().unwrap().y = 0;
+
+        let moved = state.move_piece(0, 1);
+
+        assert!(!moved);
+    }
+
+    #[test]
+    fn test_rotate_piece_clockwise() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.spawn_piece();
+        state.current_piece.as_mut().unwrap().rotation = 0;
+        state.rotate_piece(true);
+
+        assert_eq!(state.current_piece.unwrap().rotation, 1);
+    }
+
+    #[test]
+    fn test_rotate_piece_counter_clockwise() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.spawn_piece();
+        state.current_piece.as_mut().unwrap().rotation = 2;
+        state.rotate_piece(false);
+
+        assert_eq!(state.current_piece.unwrap().rotation, 1);
+    }
+
+    #[test]
+    fn test_rotate_piece_no_current_piece() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = None;
+        state.rotate_piece(true);
+
+        assert_eq!(state.current_piece, None);
+    }
+
+    #[test]
+    fn test_hard_drop() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.spawn_piece();
+
+        state.hard_drop();
+
+        assert!(state.current_piece.is_some());
+    }
+
+    #[test]
+    fn test_lock_current_piece() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.spawn_piece();
+        state.current_piece.as_mut().unwrap().x = 0;
+        state.current_piece.as_mut().unwrap().y = 18;
+        let blocks_before = state.current_piece.unwrap().get_blocks();
+
+        state.lock_current_piece();
+
+        assert!(state.current_piece.is_some());
+        for (dx, dy) in blocks_before {
+            let x = (0 + dx) as usize;
+            let y = (18 + dy) as usize;
+            assert!(
+                state.board.get_cell(x, y).is_some(),
+                "Cell ({}, {}) should be filled",
+                x,
+                y
+            );
+        }
+    }
+
+    #[test]
+    fn test_lock_current_piece_triggers_animation() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        for x in 0..10 {
+            state.board.cells_mut()[19][x] = Some(TetriminoType::I);
+        }
+
+        state.spawn_piece();
+        state.current_piece.as_mut().unwrap().x = 0;
+        state.current_piece.as_mut().unwrap().y = 18;
+
+        state.lock_current_piece();
+
+        assert!(state.pending_line_clear);
+        assert!(state.line_clear_animation.is_some());
+        assert_eq!(state.line_clear_animation.as_ref().unwrap().total_lines, 1);
+    }
+
+    #[test]
+    fn test_complete_line_clear() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        let mut bottom_piece = Tetrimino::new(TetriminoType::I);
+        bottom_piece.x = 0;
+        bottom_piece.y = 19;
+        bottom_piece.rotation = 0;
+        state.board.lock_tetromino(&bottom_piece);
+
+        state.pending_line_clear = true;
+        state.line_clear_animation = Some(super::LineClearAnimation {
+            cleared_rows: vec![19],
+            start_time: std::time::Instant::now(),
+            total_lines: 1,
+        });
+
+        state.complete_line_clear();
+
+        assert!(!state.pending_line_clear);
+        assert!(state.line_clear_animation.is_none());
+        assert!(state.board.get_full_lines().is_empty());
+    }
+
+    #[test]
+    fn test_complete_line_clear_no_pending() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.complete_line_clear();
+
+        assert!(!state.pending_line_clear);
+    }
+
+    #[test]
+    fn test_update_score_zero_lines() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.score = 100;
+        state.combo_count = 5;
+
+        state.update_score(0, false);
+
+        assert_eq!(state.score, 100);
+        assert_eq!(state.combo_count, 0);
+    }
+
+    #[test]
+    fn test_compute_awarded_lines_no_tspin() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert_eq!(state.compute_awarded_lines(1, false), 1);
+        assert_eq!(state.compute_awarded_lines(2, false), 2);
+        assert_eq!(state.compute_awarded_lines(3, false), 3);
+        assert_eq!(state.compute_awarded_lines(4, false), 4);
+    }
+
+    #[test]
+    fn test_compute_awarded_lines_with_tspin() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert_eq!(state.compute_awarded_lines(1, true), 1);
+        assert_eq!(state.compute_awarded_lines(2, true), 2);
+        assert_eq!(state.compute_awarded_lines(3, true), 3);
+    }
+
+    #[test]
+    fn test_check_tspin_always_false() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert!(!state.check_tspin());
+    }
+
+    #[test]
+    fn test_update_level_fixed_goal() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.update_level_fixed_goal(5);
+
+        assert_eq!(state.lines_until_next_level, 5);
+        assert_eq!(state.level, 1);
+    }
+
+    #[test]
+    fn test_update_level_fixed_goal_level_up() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.update_level_fixed_goal(15);
+
+        assert_eq!(state.level, 2);
+        assert_eq!(state.lines_until_next_level, 5);
+    }
+
+    #[test]
+    fn test_update_level_fixed_goal_exact_level_up() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.update_level_fixed_goal(10);
+
+        assert_eq!(state.level, 2);
+        assert_eq!(state.lines_until_next_level, 10);
+    }
+
+    #[test]
+    fn test_update_level_variable_goal() {
+        let config = GameConfig {
+            enable_variable_goal: true,
+            ..make_test_config(true)
+        };
+        let mut state = super::GameState::new(config);
+
+        state.pieces_placed = 10;
+        state.update_level_variable_goal(5, false);
+
+        assert_eq!(state.level, 1);
+    }
+
+    #[test]
+    fn test_update_level_variable_goal_level_up() {
+        let config = GameConfig {
+            enable_variable_goal: true,
+            ..make_test_config(true)
+        };
+        let mut state = super::GameState::new(config);
+
+        state.pieces_placed = 10;
+        state.update_level_variable_goal(15, false);
+
+        assert_eq!(state.level, 2);
+    }
+
+    #[test]
+    fn test_get_wall_kicks_i_piece() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        let kicks_0_1 = state.get_wall_kicks(TetriminoType::I, 0, 1);
+        assert!(!kicks_0_1.is_empty());
+        assert_eq!(kicks_0_1[0], (0, 0));
+
+        let kicks_1_0 = state.get_wall_kicks(TetriminoType::I, 1, 0);
+        assert!(!kicks_1_0.is_empty());
+    }
+
+    #[test]
+    fn test_get_wall_kicks_o_piece() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        let kicks = state.get_wall_kicks(TetriminoType::O, 0, 1);
+        assert_eq!(kicks, vec![(0, 0)]);
+    }
+
+    #[test]
+    fn test_get_wall_kicks_t_piece() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        let kicks_0_1 = state.get_wall_kicks(TetriminoType::T, 0, 1);
+        assert_eq!(kicks_0_1, vec![(0, 0), (0, -1), (-1, 0), (-1, -1)]);
+
+        let kicks_1_2 = state.get_wall_kicks(TetriminoType::T, 1, 2);
+        assert_eq!(kicks_1_2, vec![(0, 0), (0, -1), (1, 0), (1, -1)]);
+    }
+
+    #[test]
+    fn test_get_wall_kicks_default() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        let kicks = state.get_wall_kicks(TetriminoType::Z, 2, 2);
+        assert_eq!(kicks, vec![(0, 0)]);
+    }
+
+    #[test]
+    fn test_is_line_clear_animation_active_no_animation() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert!(!state.is_line_clear_animation_active());
+    }
+
+    #[test]
+    fn test_is_line_clear_animation_active_with_animation() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.line_clear_animation = Some(super::LineClearAnimation {
+            cleared_rows: vec![19],
+            start_time: std::time::Instant::now(),
+            total_lines: 1,
+        });
+
+        assert!(state.is_line_clear_animation_active());
+    }
+
+    #[test]
+    fn test_should_show_cleared_rows_no_animation() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert!(!state.should_show_cleared_rows());
+    }
+
+    #[test]
+    fn test_should_show_cleared_rows_with_animation() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.line_clear_animation = Some(super::LineClearAnimation {
+            cleared_rows: vec![19],
+            start_time: std::time::Instant::now(),
+            total_lines: 2,
+        });
+
+        assert!(state.should_show_cleared_rows());
+    }
+
+    #[test]
+    fn test_line_clear_animation_struct() {
+        let anim = super::LineClearAnimation {
+            cleared_rows: vec![18, 19],
+            start_time: std::time::Instant::now(),
+            total_lines: 2,
+        };
+
+        assert_eq!(anim.cleared_rows.len(), 2);
+        assert_eq!(anim.total_lines, 2);
+    }
+
+    #[test]
+    fn test_score_accumulates() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.score = 100;
+        state.update_score(1, true);
+
+        assert!(state.score > 100);
+    }
+
+    #[test]
+    fn test_lines_cleared_accumulates() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.lines_cleared = 5;
+        for x in 0..10 {
+            state.board.cells_mut()[19][x] = Some(TetriminoType::I);
+        }
+        state.pending_line_clear = true;
+        state.line_clear_animation = Some(super::LineClearAnimation {
+            cleared_rows: vec![19],
+            start_time: std::time::Instant::now(),
+            total_lines: 1,
+        });
+
+        state.complete_line_clear();
+
+        assert_eq!(state.lines_cleared, 6);
+    }
+
+    #[test]
+    fn test_back_to_back_state() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.back_to_back_active = true;
+        state.update_score(4, true);
+
+        assert!(state.back_to_back_active);
+    }
+
+    #[test]
+    fn test_combo_count() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.combo_count = 2;
+        state.update_score(2, true);
+
+        assert_eq!(state.combo_count, 3);
+    }
+
+    #[test]
+    fn test_pieces_placed() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        assert_eq!(state.pieces_placed, 0);
+
+        state.spawn_piece();
+        state.lock_current_piece();
+
+        assert_eq!(state.pieces_placed, 1);
+    }
+
+    #[test]
+    fn test_hold_disabled_returns_early() {
+        let config = make_test_config(false);
+        let mut state = super::GameState::new(config);
+
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.hold_piece();
+
+        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::T);
+        assert_eq!(state.held_piece, None);
+    }
+
+    #[test]
+    fn test_all_tetrimino_types_in_bag() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert!(state.bag.len() < 7);
+        assert_eq!(state.next_pieces.len(), 3);
+    }
+
+    #[test]
+    fn test_next_pieces_populated() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert_eq!(state.next_pieces.len(), 3);
+        assert!(!state.current_piece.is_some());
+    }
+
+    #[test]
+    fn test_spawn_piece_refills_next_pieces() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        let initial_next_len = state.next_pieces.len();
+        state.spawn_piece();
+
+        assert_eq!(state.next_pieces.len(), initial_next_len);
+    }
+
+    #[test]
+    fn test_game_over_flag() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        assert!(!state.game_over);
+
+        state.game_over = true;
+
+        assert!(state.game_over);
+    }
+
+    #[test]
+    fn test_level_increases_with_lines() {
+        let config = make_test_config(true);
+        let mut state = super::GameState::new(config);
+
+        state.lines_until_next_level = 2;
+        state.update_level_fixed_goal(5);
+
+        assert_eq!(state.level, 2);
+    }
+
+    #[test]
+    fn test_config_stored_in_state() {
+        let config = make_test_config(true);
+        let state = super::GameState::new(config);
+
+        assert_eq!(state.config.board_width, 10);
+        assert_eq!(state.config.board_height, 20);
+        assert_eq!(state.config.preview_count, 3);
+    }
 }

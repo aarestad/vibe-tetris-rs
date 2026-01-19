@@ -86,6 +86,11 @@ impl Board {
     pub fn cells(&self) -> &Vec<Vec<Option<TetriminoType>>> {
         &self.cells
     }
+
+    #[cfg(test)]
+    pub fn cells_mut(&mut self) -> &mut Vec<Vec<Option<TetriminoType>>> {
+        &mut self.cells
+    }
 }
 
 #[cfg(test)]
