@@ -42,7 +42,6 @@ impl Game {
     pub fn run(&mut self) -> Result<()> {
         let _cleanup = setup_terminal();
 
-        // Start background music
         self.start_music();
 
         self.state.spawn_piece();
@@ -72,7 +71,6 @@ impl Game {
             if self.state.game_over {
                 self.renderer.render_game_over(&self.state)?;
 
-                // Stop music on game over
                 if let Some(a) = self.audio.as_mut() {
                     a.stop();
                 }
@@ -152,7 +150,6 @@ impl Game {
     }
 
     fn handle_pause(&mut self) -> Result<()> {
-        // Pause music when pausing game
         if let Some(a) = self.audio.as_mut() {
             a.pause();
         }
@@ -163,7 +160,6 @@ impl Game {
             if let Some(action) = self.input.poll_input() {
                 match action {
                     InputAction::Pause => {
-                        // Resume music when unpausing
                         if let Some(a) = self.audio.as_mut() {
                             a.resume();
                         }
