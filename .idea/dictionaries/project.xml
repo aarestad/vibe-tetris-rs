@@ -2,6 +2,7 @@
   <dictionary name="project">
     <words>
       <w>Tetrimino</w>
+      <w>tetrimino</w>
     </words>
   </dictionary>
 </component>
