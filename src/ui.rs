@@ -8,7 +8,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
 };
 use std::io::Stdout;
 
@@ -328,7 +328,8 @@ impl Renderer {
             let pause_block = Block::default()
                 .title(" PAUSED ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow));
+                .border_style(Style::default().fg(Color::DarkGray))
+                .style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
             let pause_area = Rect {
                 x: (f.area().width.saturating_sub(30)) / 2,
@@ -337,14 +338,23 @@ impl Renderer {
                 height: 6.min(f.area().height),
             };
 
+            f.render_widget(Clear, pause_area);
+            f.render_widget(pause_block, pause_area);
+
+            let inner_area = Rect {
+                x: pause_area.x + 1,
+                y: pause_area.y + 1,
+                width: pause_area.width.saturating_sub(2),
+                height: pause_area.height.saturating_sub(2),
+            };
+
             let pause_text = Paragraph::new(vec![
-                Line::from("").alignment(Alignment::Center),
                 Line::from("Press PAUSE again to resume").alignment(Alignment::Center),
                 Line::from("Press QUIT to exit game").alignment(Alignment::Center),
             ])
-            .block(pause_block);
+            .alignment(Alignment::Center);
 
-            f.render_widget(pause_text, pause_area);
+            f.render_widget(pause_text, inner_area);
         })?;
         Ok(())
     }
@@ -356,7 +366,8 @@ impl Renderer {
             let over_block = Block::default()
                 .title(" GAME OVER ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Red));
+                .border_style(Style::default().fg(Color::DarkGray))
+                .style(Style::default().bg(Color::DarkGray).fg(Color::White));
 
             let over_area = Rect {
                 x: (f.area().width.saturating_sub(30)) / 2,
@@ -365,17 +376,26 @@ impl Renderer {
                 height: 8.min(f.area().height),
             };
 
+            f.render_widget(Clear, over_area);
+            f.render_widget(over_block, over_area);
+
+            let inner_area = Rect {
+                x: over_area.x + 1,
+                y: over_area.y + 1,
+                width: over_area.width.saturating_sub(2),
+                height: over_area.height.saturating_sub(2),
+            };
+
             let over_text = Paragraph::new(vec![
-                Line::from("").alignment(Alignment::Center),
                 Line::from(format!("Final Score: {}", state.score)).alignment(Alignment::Center),
                 Line::from(format!("Level Reached: {}", state.level)).alignment(Alignment::Center),
                 Line::from(format!("Lines Cleared: {}", state.lines_cleared))
                     .alignment(Alignment::Center),
                 Line::from("Press any key to exit").alignment(Alignment::Center),
             ])
-            .block(over_block);
+            .alignment(Alignment::Center);
 
-            f.render_widget(over_text, over_area);
+            f.render_widget(over_text, inner_area);
         })?;
         Ok(())
     }
