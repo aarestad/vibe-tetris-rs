@@ -146,11 +146,9 @@ impl AudioPlayer {
             }
         };
 
-        if let Ok(()) = self.setup_stream(device, samples) {
-            return;
+        if let Err(e) = self.setup_stream(device, samples) {
+            eprintln!("Warning: Could not set up audio stream: {}", e);
         }
-
-        eprintln!("Warning: Could not set up audio stream");
     }
 
     fn setup_stream(
