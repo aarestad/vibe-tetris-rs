@@ -17,16 +17,16 @@ pub struct Game {
     state: GameState,
     renderer: Renderer,
     input: InputHandler,
-    audio: Option<AudioPlayer>,
+    audio: AudioPlayer,
 }
 
 impl Game {
     pub fn new(config: GameConfig) -> Result<Self> {
         let renderer = Renderer::new()?;
         let audio = if config.enable_sound {
-            Some(AudioPlayer::new())
+            AudioPlayer::new()
         } else {
-            None
+            AudioPlayer::no_sound()
         };
         let state = GameState::new(config);
         let input = InputHandler::new();
@@ -75,9 +75,7 @@ impl Game {
             if self.state.game_over {
                 self.renderer.render_game_over(&self.state)?;
 
-                if let Some(a) = self.audio.as_mut() {
-                    a.stop();
-                }
+                self.audio.stop();
 
                 stdout().flush()?;
 
@@ -101,11 +99,9 @@ impl Game {
         let mut audio_path = PathBuf::from(env!("OUT_DIR"));
         audio_path.push("tetris_theme.wav");
 
-        if audio_path.exists()
-            && let Some(a) = self.audio.as_mut()
-        {
-            a.play_background_music(audio_path);
-            a.set_volume(0.5);
+        if audio_path.exists() {
+            self.audio.play_background_music(audio_path);
+            self.audio.set_volume(0.5);
         }
     }
 
@@ -145,9 +141,7 @@ impl Game {
             InputAction::Quit => {
                 self.state.game_over = true;
 
-                if let Some(a) = self.audio.as_mut() {
-                    a.stop();
-                }
+                self.audio.stop();
             }
         }
 
@@ -155,9 +149,7 @@ impl Game {
     }
 
     fn handle_pause(&mut self) -> Result<()> {
-        if let Some(a) = self.audio.as_mut() {
-            a.pause();
-        }
+        self.audio.pause();
 
         self.renderer.render_pause(&self.state)?;
 
@@ -165,16 +157,12 @@ impl Game {
             if let Some(action) = self.input.poll_input() {
                 match action {
                     InputAction::Pause => {
-                        if let Some(a) = self.audio.as_mut() {
-                            a.resume();
-                        }
+                        self.audio.resume();
 
                         break;
                     }
                     InputAction::Quit => {
-                        if let Some(a) = self.audio.as_mut() {
-                            a.stop();
-                        }
+                        self.audio.stop();
                         self.state.game_over = true;
                         break;
                     }
@@ -209,24 +197,7 @@ fn setup_terminal() -> TerminalCleanup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::GameConfig;
     use crate::input::InputAction;
-
-    fn make_test_config() -> GameConfig {
-        GameConfig {
-            board_width: 10,
-            board_height: 20,
-            starting_level: 1,
-            lines_per_level: 10,
-            enable_ghost_piece: false,
-            enable_hold: true,
-            enable_variable_goal: false,
-            enable_sound: false,
-            preview_count: 3,
-            das_delay: 250,
-            das_repeat: 50,
-        }
-    }
 
     fn get_gravity_for_level(level: u32) -> Duration {
         let base_gravity_ms = 800;

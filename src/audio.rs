@@ -13,17 +13,21 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
+    pub fn no_sound() -> Self {
+        Self {
+            stream: None,
+            sink: None,
+            playing: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     pub fn new() -> Self {
         Self::try_new().unwrap_or_else(|e| {
             eprintln!(
                 "Warning: Failed to initialize audio player: {}. Running without sound.",
                 e
             );
-            Self {
-                stream: None,
-                sink: None,
-                playing: Arc::new(AtomicBool::new(false)),
-            }
+            Self::no_sound()
         })
     }
 
