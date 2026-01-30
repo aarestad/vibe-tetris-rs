@@ -23,6 +23,7 @@ pub struct GameState {
     last_was_special: bool,
     pub line_clear_animation: Option<LineClearAnimation>,
     pub pending_line_clear: bool,
+    pub show_help: bool,
 }
 
 pub struct LineClearAnimation {
@@ -54,6 +55,7 @@ impl GameState {
             last_was_special: false,
             line_clear_animation: None,
             pending_line_clear: false,
+            show_help: false,
         };
 
         // Initialize the first bag and next pieces
@@ -485,6 +487,10 @@ impl GameState {
         } else {
             false
         }
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
     }
 }
 

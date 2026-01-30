@@ -7,9 +7,9 @@ use anyhow::Result;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::io::{Write, stdout};
+use std::io::{stdout, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -59,15 +59,17 @@ impl Game {
                 self.handle_input(action)?;
             }
 
-            if self.state.pending_line_clear {
-                if !self.state.is_line_clear_animation_active() {
-                    self.state.complete_line_clear();
+            if !self.state.show_help {
+                if self.state.pending_line_clear {
+                    if !self.state.is_line_clear_animation_active() {
+                        self.state.complete_line_clear();
+                    }
+                } else if now.duration_since(last_gravity) >= gravity_duration {
+                    if !self.state.move_piece(0, 1) {
+                        self.state.lock_current_piece();
+                    }
+                    last_gravity = now;
                 }
-            } else if now.duration_since(last_gravity) >= gravity_duration {
-                if !self.state.move_piece(0, 1) {
-                    self.state.lock_current_piece();
-                }
-                last_gravity = now;
             }
 
             self.renderer.render(&self.state)?;
@@ -137,6 +139,9 @@ impl Game {
             }
             InputAction::Pause => {
                 self.handle_pause()?;
+            }
+            InputAction::ToggleHelp => {
+                self.state.toggle_help();
             }
             InputAction::Quit => {
                 self.state.game_over = true;

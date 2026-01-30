@@ -34,7 +34,12 @@ impl Renderer {
     }
 
     pub fn render(&mut self, state: &GameState) -> Result<()> {
-        self.terminal.draw(|f| Self::draw_game(f, state))?;
+        self.terminal.draw(|f| {
+            Self::draw_game(f, state);
+            if state.show_help {
+                Self::draw_help_overlay(f);
+            }
+        })?;
         Ok(())
     }
 
@@ -121,6 +126,14 @@ impl Renderer {
             Line::from(vec![Span::styled(
                 progress_bar,
                 Style::default().fg(Color::Green),
+            )]),
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![Span::styled(
+                "[H] Help",
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD),
             )]),
         ];
 
@@ -360,6 +373,72 @@ impl Renderer {
         let filled = ((progress * BAR_WIDTH as f64).min(BAR_WIDTH as f64)) as usize;
         let empty = BAR_WIDTH - filled;
         "█".repeat(filled) + &"░".repeat(empty)
+    }
+
+    fn draw_help_overlay(f: &mut Frame) {
+        let help_block = Block::default()
+            .title(" CONTROLS ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+
+        let help_area = Rect {
+            x: (f.area().width.saturating_sub(36)) / 2,
+            y: (f.area().height.saturating_sub(18)) / 2,
+            width: 36.min(f.area().width),
+            height: 18.min(f.area().height),
+        };
+
+        f.render_widget(Clear, help_area);
+        f.render_widget(help_block, help_area);
+
+        let inner_area = Rect {
+            x: help_area.x + 1,
+            y: help_area.y + 1,
+            width: help_area.width.saturating_sub(2),
+            height: help_area.height.saturating_sub(2),
+        };
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled("Move:  ", Style::default().fg(Color::Yellow)),
+                Span::styled("← →", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("Drop:   ", Style::default().fg(Color::Yellow)),
+                Span::styled("↓", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("Hard:   ", Style::default().fg(Color::Yellow)),
+                Span::styled("SPACE", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("Rotate: ", Style::default().fg(Color::Yellow)),
+                Span::styled("X / Z", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("Hold:   ", Style::default().fg(Color::Yellow)),
+                Span::styled("C", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("Pause:  ", Style::default().fg(Color::Yellow)),
+                Span::styled("P / ESC", Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("Help:   ", Style::default().fg(Color::Yellow)),
+                Span::styled("H", Style::default().fg(Color::White)),
+            ]),
+            Line::from(vec![
+                Span::styled("Quit:   ", Style::default().fg(Color::Yellow)),
+                Span::styled("Q", Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from("Press H to close").alignment(Alignment::Center),
+        ];
+
+        let help_text = Paragraph::new(lines).alignment(Alignment::Left);
+        f.render_widget(help_text, inner_area);
     }
 
     pub fn render_pause(&mut self, state: &GameState) -> Result<()> {

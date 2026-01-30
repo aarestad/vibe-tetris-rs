@@ -10,6 +10,7 @@ pub enum InputAction {
     HardDrop,
     Hold,
     Pause,
+    ToggleHelp,
     Quit,
 }
 
@@ -53,6 +54,7 @@ impl InputHandler {
             KeyCode::Char(' ') => Some(InputAction::HardDrop),
             KeyCode::Char('c') => Some(InputAction::Hold),
             KeyCode::Esc | KeyCode::Char('p') => Some(InputAction::Pause),
+            KeyCode::Char('h') | KeyCode::Char('H') => Some(InputAction::ToggleHelp),
             KeyCode::Char('q') => Some(InputAction::Quit),
             _ => None,
         }
@@ -236,6 +238,7 @@ mod tests {
         let _ = HardDrop;
         let _ = Hold;
         let _ = Pause;
+        let _ = ToggleHelp;
         let _ = Quit;
     }
 
