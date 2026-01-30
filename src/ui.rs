@@ -3,12 +3,12 @@ use crate::tetrimino::TetriminoType;
 use anyhow::Result;
 use ratatui::layout::Alignment;
 use ratatui::{
-    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
+    Frame, Terminal,
 };
 use std::io::Stdout;
 
@@ -67,6 +67,10 @@ impl Renderer {
     }
 
     fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
+        let lines_cleared_in_level = state.lines_cleared % state.config.lines_per_level;
+        let progress = lines_cleared_in_level as f64 / state.config.lines_per_level as f64;
+        let progress_bar = Self::create_progress_bar(progress);
+
         let lines = vec![
             Line::from(vec![Span::styled(
                 "SCORE",
@@ -102,14 +106,21 @@ impl Renderer {
             )]),
             Line::from(""),
             Line::from(vec![Span::styled(
-                "TO GO",
+                "PROGRESS",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             )]),
             Line::from(vec![Span::styled(
-                format!("{}", state.lines_until_next_level),
+                format!(
+                    "{}/{}",
+                    lines_cleared_in_level, state.config.lines_per_level
+                ),
                 Style::default().fg(Color::White),
+            )]),
+            Line::from(vec![Span::styled(
+                progress_bar,
+                Style::default().fg(Color::Green),
             )]),
         ];
 
@@ -342,6 +353,13 @@ impl Renderer {
             .into_iter()
             .map(|s| Line::from(vec![Span::styled(s, Style::default().fg(color))]))
             .collect()
+    }
+
+    fn create_progress_bar(progress: f64) -> String {
+        const BAR_WIDTH: usize = 12;
+        let filled = ((progress * BAR_WIDTH as f64).min(BAR_WIDTH as f64)) as usize;
+        let empty = BAR_WIDTH - filled;
+        "█".repeat(filled) + &"░".repeat(empty)
     }
 
     pub fn render_pause(&mut self, state: &GameState) -> Result<()> {
