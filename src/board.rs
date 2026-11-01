@@ -1,5 +1,12 @@
 use crate::tetrimino::{Tetrimino, TetriminoType};
 
+/// Rows above the Skyline, used for generation and play above the Matrix (Guideline 10).
+pub const BUFFER_ZONE_HEIGHT: usize = 20;
+
+/// The Matrix and the Buffer Zone above it.
+///
+/// Row 0 is the top row of the Matrix, so the Skyline sits just above it. Negative rows are
+/// in the Buffer Zone, and y increases downward.
 pub struct Board {
     width: usize,
     height: usize,
@@ -7,77 +14,85 @@ pub struct Board {
 }
 
 impl Board {
+    /// Creates an empty board. `height` counts Matrix rows only.
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             width,
             height,
-            cells: vec![vec![None; width]; height],
+            cells: vec![vec![None; width]; height + BUFFER_ZONE_HEIGHT],
         }
     }
 
+    /// Storage index of a row, or None if it is outside the board.
+    fn row_index(&self, y: i32) -> Option<usize> {
+        let index = y + BUFFER_ZONE_HEIGHT as i32;
+        (index >= 0 && (index as usize) < self.cells.len()).then_some(index as usize)
+    }
+
     pub fn is_valid_position(&self, tetromino: &Tetrimino) -> bool {
-        for (dx, dy) in tetromino.get_blocks() {
-            let x = tetromino.x + dx;
-            let y = tetromino.y + dy;
+        tetromino
+            .get_blocks()
+            .iter()
+            .all(|(dx, dy)| !self.is_occupied(tetromino.x + dx, tetromino.y + dy))
+    }
 
-            if x < 0 || x >= self.width as i32 || y < 0 || y >= self.height as i32 {
-                return false;
-            }
-
-            if self.cells[y as usize][x as usize].is_some() {
-                return false;
-            }
+    /// True for a cell holding a Block or lying outside the board, such as a wall or the floor.
+    pub fn is_occupied(&self, x: i32, y: i32) -> bool {
+        if x < 0 || x >= self.width as i32 {
+            return true;
         }
-        true
+        match self.row_index(y) {
+            Some(row) => self.cells[row][x as usize].is_some(),
+            None => true,
+        }
     }
 
     pub fn lock_tetromino(&mut self, tetromino: &Tetrimino) {
         for (dx, dy) in tetromino.get_blocks() {
-            let x = (tetromino.x + dx) as usize;
-            let y = (tetromino.y + dy) as usize;
-            self.cells[y][x] = Some(tetromino.kind);
-        }
-    }
-
-    pub fn get_full_lines(&self) -> Vec<usize> {
-        let mut full_lines = Vec::new();
-        for y in 0..self.height {
-            if self.cells[y].iter().all(|cell| cell.is_some()) {
-                full_lines.push(y);
+            let x = tetromino.x + dx;
+            if let Some(row) = self.row_index(tetromino.y + dy)
+                && x >= 0
+                && (x as usize) < self.width
+            {
+                self.cells[row][x as usize] = Some(tetromino.kind);
             }
         }
-        full_lines
     }
 
+    /// Rows that are completely filled, from top to bottom. Buffer Zone rows are negative.
+    pub fn get_full_lines(&self) -> Vec<i32> {
+        (0..self.cells.len())
+            .filter(|&row| self.cells[row].iter().all(|cell| cell.is_some()))
+            .map(|row| row as i32 - BUFFER_ZONE_HEIGHT as i32)
+            .collect()
+    }
+
+    /// Removes filled rows, collapses the rows above and returns how many were removed.
     pub fn clear_lines(&mut self) -> u32 {
-        let mut lines_cleared = 0;
-        let mut y = self.height - 1;
+        let total_rows = self.cells.len();
+        self.cells
+            .retain(|row| row.iter().any(|cell| cell.is_none()));
 
-        while y > 0 {
-            if self.cells[y].iter().all(|cell| cell.is_some()) {
-                self.cells.remove(y);
-                self.cells.insert(0, vec![None; self.width]);
-                lines_cleared += 1;
-            } else {
-                y -= 1;
-            }
+        let cleared = total_rows - self.cells.len();
+        for _ in 0..cleared {
+            self.cells.insert(0, vec![None; self.width]);
         }
-
-        lines_cleared
+        cleared as u32
     }
 
-    pub fn get_cell(&self, x: usize, y: usize) -> Option<TetriminoType> {
-        if y < self.height && x < self.width {
-            self.cells[y][x]
-        } else {
-            None
+    /// The cell at a position. Anything outside the board reads as empty.
+    pub fn get_cell(&self, x: usize, y: i32) -> Option<TetriminoType> {
+        if x >= self.width {
+            return None;
         }
+        self.row_index(y).and_then(|row| self.cells[row][x])
     }
 
     pub fn get_width(&self) -> usize {
         self.width
     }
 
+    /// Matrix height, not counting the Buffer Zone.
     pub fn get_height(&self) -> usize {
         self.height
     }
@@ -88,8 +103,9 @@ impl Board {
     }
 
     #[cfg(test)]
-    pub fn cells_mut(&mut self) -> &mut Vec<Vec<Option<TetriminoType>>> {
-        &mut self.cells
+    pub fn set_cell(&mut self, x: usize, y: i32, value: Option<TetriminoType>) {
+        let row = self.row_index(y).unwrap();
+        self.cells[row][x] = value;
     }
 }
 
@@ -176,7 +192,7 @@ mod tests {
     #[test]
     fn test_is_valid_position_top_boundary() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, 0, -1, 0);
+        let piece = create_test_piece(TetriminoType::I, 0, -22, 0);
         assert!(!board.is_valid_position(&piece));
     }
 
@@ -278,7 +294,7 @@ mod tests {
     fn test_get_full_lines_one_full_line() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[10][x] = Some(TetriminoType::I);
+            board.set_cell(x, 10, Some(TetriminoType::I));
         }
         let full_lines = board.get_full_lines();
         assert_eq!(full_lines.len(), 1);
@@ -289,9 +305,9 @@ mod tests {
     fn test_get_full_lines_multiple_full_lines() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[5][x] = Some(TetriminoType::I);
-            board.cells[10][x] = Some(TetriminoType::O);
-            board.cells[15][x] = Some(TetriminoType::T);
+            board.set_cell(x, 5, Some(TetriminoType::I));
+            board.set_cell(x, 10, Some(TetriminoType::O));
+            board.set_cell(x, 15, Some(TetriminoType::T));
         }
         let full_lines = board.get_full_lines();
         assert_eq!(full_lines.len(), 3);
@@ -304,7 +320,7 @@ mod tests {
     fn test_get_full_lines_partial_line() {
         let mut board = Board::new(10, 20);
         for x in 0..9 {
-            board.cells[10][x] = Some(TetriminoType::I);
+            board.set_cell(x, 10, Some(TetriminoType::I));
         }
         assert!(board.get_full_lines().is_empty());
     }
@@ -327,7 +343,7 @@ mod tests {
     fn test_clear_lines_one_line() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[10][x] = Some(TetriminoType::I);
+            board.set_cell(x, 10, Some(TetriminoType::I));
         }
         assert_eq!(board.clear_lines(), 1);
         assert!(board.get_full_lines().is_empty());
@@ -337,9 +353,9 @@ mod tests {
     fn test_clear_lines_multiple_lines() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[5][x] = Some(TetriminoType::I);
-            board.cells[10][x] = Some(TetriminoType::O);
-            board.cells[15][x] = Some(TetriminoType::T);
+            board.set_cell(x, 5, Some(TetriminoType::I));
+            board.set_cell(x, 10, Some(TetriminoType::O));
+            board.set_cell(x, 15, Some(TetriminoType::T));
         }
         assert_eq!(board.clear_lines(), 3);
     }
@@ -348,10 +364,10 @@ mod tests {
     fn test_clear_lines_blocks_above_move_down() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[19][x] = Some(TetriminoType::I);
+            board.set_cell(x, 19, Some(TetriminoType::I));
         }
         for x in 0..10 {
-            board.cells[15][x] = Some(TetriminoType::O);
+            board.set_cell(x, 15, Some(TetriminoType::O));
         }
         assert_eq!(board.clear_lines(), 2);
         assert!(board.get_full_lines().is_empty());
@@ -361,8 +377,8 @@ mod tests {
     fn test_clear_lines_non_adjacent() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[5][x] = Some(TetriminoType::I);
-            board.cells[19][x] = Some(TetriminoType::O);
+            board.set_cell(x, 5, Some(TetriminoType::I));
+            board.set_cell(x, 19, Some(TetriminoType::O));
         }
         assert_eq!(board.clear_lines(), 2);
         assert!(board.get_full_lines().is_empty());
@@ -371,7 +387,7 @@ mod tests {
     #[test]
     fn test_get_cell_in_bounds() {
         let mut board = Board::new(10, 20);
-        board.cells[5][3] = Some(TetriminoType::T);
+        board.set_cell(3, 5, Some(TetriminoType::T));
         assert_eq!(board.get_cell(3, 5), Some(TetriminoType::T));
     }
 
@@ -418,7 +434,7 @@ mod tests {
     fn test_cells_method() {
         let board = Board::new(10, 20);
         let cells = board.cells();
-        assert_eq!(cells.len(), 20);
+        assert_eq!(cells.len(), 20 + BUFFER_ZONE_HEIGHT);
         assert_eq!(cells[0].len(), 10);
     }
 
@@ -431,10 +447,10 @@ mod tests {
         board.lock_tetromino(&piece2);
 
         assert_eq!(board.get_cell(0, 0), Some(TetriminoType::O));
-        assert_eq!(board.get_cell(5, 0), Some(TetriminoType::I));
-        assert_eq!(board.get_cell(6, 0), Some(TetriminoType::I));
-        assert_eq!(board.get_cell(7, 0), Some(TetriminoType::I));
-        assert_eq!(board.get_cell(8, 0), Some(TetriminoType::I));
+        assert_eq!(board.get_cell(5, 1), Some(TetriminoType::I));
+        assert_eq!(board.get_cell(6, 1), Some(TetriminoType::I));
+        assert_eq!(board.get_cell(7, 1), Some(TetriminoType::I));
+        assert_eq!(board.get_cell(8, 1), Some(TetriminoType::I));
     }
 
     #[test]
@@ -446,7 +462,7 @@ mod tests {
         board.lock_tetromino(&piece2);
 
         for x in 0..10 {
-            board.cells[19][x] = Some(TetriminoType::I);
+            board.set_cell(x, 19, Some(TetriminoType::I));
         }
 
         assert_eq!(board.clear_lines(), 1);
@@ -486,7 +502,7 @@ mod tests {
     fn test_board_dimensions_consistency() {
         let board = Board::new(10, 20);
         let cells = board.cells();
-        assert_eq!(cells.len(), board.get_height());
+        assert_eq!(cells.len(), board.get_height() + BUFFER_ZONE_HEIGHT);
         for row in cells.iter() {
             assert_eq!(row.len(), board.get_width());
         }
@@ -496,9 +512,72 @@ mod tests {
     fn test_clear_lines_skips_non_full_lines() {
         let mut board = Board::new(10, 20);
         for x in 0..10 {
-            board.cells[5][x] = Some(TetriminoType::I);
+            board.set_cell(x, 5, Some(TetriminoType::I));
         }
-        board.cells[10][9] = None;
+        board.set_cell(9, 10, None);
         assert_eq!(board.clear_lines(), 1);
+    }
+
+    #[test]
+    fn test_top_matrix_row_clears() {
+        let mut board = Board::new(10, 20);
+        for x in 0..10 {
+            board.set_cell(x, 0, Some(TetriminoType::I));
+        }
+        assert_eq!(board.get_full_lines(), vec![0]);
+        assert_eq!(board.clear_lines(), 1);
+        assert!(board.get_full_lines().is_empty());
+    }
+
+    #[test]
+    fn test_full_row_in_buffer_zone_clears() {
+        let mut board = Board::new(10, 20);
+        for x in 0..10 {
+            board.set_cell(x, -1, Some(TetriminoType::I));
+        }
+        assert_eq!(board.get_full_lines(), vec![-1]);
+        assert_eq!(board.clear_lines(), 1);
+    }
+
+    #[test]
+    fn test_clear_collapses_rows_by_number_cleared() {
+        let mut board = Board::new(10, 20);
+        board.set_cell(3, 10, Some(TetriminoType::T));
+        for x in 0..10 {
+            board.set_cell(x, 11, Some(TetriminoType::I));
+            board.set_cell(x, 13, Some(TetriminoType::I));
+        }
+        board.set_cell(7, 12, Some(TetriminoType::S));
+        assert_eq!(board.clear_lines(), 2);
+        assert_eq!(board.get_cell(3, 12), Some(TetriminoType::T));
+        assert_eq!(board.get_cell(7, 13), Some(TetriminoType::S));
+        assert_eq!(board.cells().len(), 40);
+    }
+
+    #[test]
+    fn test_pieces_are_valid_in_buffer_zone() {
+        let board = Board::new(10, 20);
+        let piece = create_test_piece(TetriminoType::T, 3, -20, 0);
+        assert!(board.is_valid_position(&piece));
+    }
+
+    #[test]
+    fn test_blocks_can_lock_in_buffer_zone() {
+        let mut board = Board::new(10, 20);
+        let piece = create_test_piece(TetriminoType::O, 4, -2, 0);
+        board.lock_tetromino(&piece);
+        assert_eq!(board.get_cell(4, -2), Some(TetriminoType::O));
+        assert!(board.is_occupied(4, -1));
+    }
+
+    #[test]
+    fn test_is_occupied_treats_walls_and_floor_as_occupied() {
+        let board = Board::new(10, 20);
+        assert!(board.is_occupied(-1, 5));
+        assert!(board.is_occupied(10, 5));
+        assert!(board.is_occupied(5, 20));
+        assert!(board.is_occupied(5, -21));
+        assert!(!board.is_occupied(5, 5));
+        assert!(!board.is_occupied(5, -20));
     }
 }
