@@ -1,4 +1,4 @@
-use crate::game_state::GameState;
+use crate::game_state::{GameOutcome, GameState};
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
 use ratatui::{
@@ -113,14 +113,14 @@ impl Renderer {
 
     fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
         let seconds = state.elapsed.as_secs();
-        let (done, total) = state.goal_progress();
+        let (done, total) = state.scoring.goal_progress();
         let mut lines = vec![
             Self::label("SCORE"),
-            Self::value(state.score.to_string()),
+            Self::value(state.scoring.score.to_string()),
             Self::label("LEVEL"),
-            Self::value(state.level.to_string()),
+            Self::value(state.scoring.level.to_string()),
             Self::label("LINES"),
-            Self::value(state.lines_cleared.to_string()),
+            Self::value(state.scoring.lines_cleared.to_string()),
             Self::label("PROGRESS"),
             Self::value(format!("{done}/{total}")),
             Line::styled(
@@ -216,7 +216,7 @@ impl Renderer {
     }
 
     fn cell_span(state: &GameState, ghost_y: Option<i32>, x: usize, y: i32) -> Span<'static> {
-        if let Some(animation) = &state.line_clear_animation
+        if let Some(animation) = state.line_clear_animation()
             && state.should_show_cleared_rows()
             && animation.cleared_rows.contains(&y)
         {
@@ -235,7 +235,7 @@ impl Renderer {
 
     /// Row where the Tetrimino in play would land, if there is one in play.
     fn calculate_ghost_y(state: &GameState) -> Option<i32> {
-        let piece = state.current_piece?;
+        let piece = state.current_piece()?;
         let mut ghost = piece;
         loop {
             let below = Tetrimino {
@@ -255,7 +255,7 @@ impl Renderer {
         x: usize,
         y: i32,
     ) -> (Option<TetriminoType>, bool) {
-        if let Some(piece) = state.current_piece {
+        if let Some(piece) = state.current_piece() {
             let xi = x as i32;
             let blocks = piece.get_blocks();
             if blocks
@@ -379,15 +379,15 @@ impl Renderer {
 
     fn draw_game_over_screen(f: &mut Frame, state: &GameState) {
         Self::draw_game(f, state, false);
-        let title = if state.marathon_complete {
+        let title = if state.outcome() == Some(GameOutcome::MarathonComplete) {
             " MARATHON COMPLETE "
         } else {
             " GAME OVER "
         };
         let lines = vec![
-            Line::from(format!("Final Score: {}", state.score)),
-            Line::from(format!("Level Reached: {}", state.level)),
-            Line::from(format!("Lines Cleared: {}", state.lines_cleared)),
+            Line::from(format!("Final Score: {}", state.scoring.score)),
+            Line::from(format!("Level Reached: {}", state.scoring.level)),
+            Line::from(format!("Lines Cleared: {}", state.scoring.lines_cleared)),
             Line::from("Press any key to exit"),
         ];
         Self::draw_box(f, state, title, lines, Alignment::Center);
@@ -429,6 +429,7 @@ impl Renderer {
 mod tests {
     use super::*;
     use crate::config::GameConfig;
+    use crate::game_state::Phase;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
 
@@ -488,7 +489,7 @@ mod tests {
     fn test_piece_and_ghost_are_both_visible() {
         let mut state = state();
         state.next_pieces.clear();
-        state.current_piece = Some(Tetrimino {
+        state.phase = Phase::Falling(Tetrimino {
             kind: TetriminoType::T,
             x: 3,
             y: 5,
@@ -508,7 +509,7 @@ mod tests {
             ..GameConfig::default()
         });
         state.next_pieces.clear();
-        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.phase = Phase::Falling(Tetrimino::new(TetriminoType::T));
         assert_eq!(count_right_of_info(&draw_state(&state), "░"), 0);
     }
 
@@ -571,7 +572,7 @@ mod tests {
     fn test_pause_hides_matrix_and_queues() {
         let mut state = state();
         state.held_piece = Some(TetriminoType::O);
-        state.current_piece = Some(Tetrimino {
+        state.phase = Phase::Falling(Tetrimino {
             kind: TetriminoType::T,
             x: 3,
             y: 5,
@@ -611,7 +612,7 @@ mod tests {
                 state.board.set_cell(x, y, Some(TetriminoType::I));
             }
         }
-        state.current_piece = Some(Tetrimino {
+        state.phase = Phase::Falling(Tetrimino {
             kind: TetriminoType::I,
             x: -2,
             y: 16,
@@ -663,8 +664,10 @@ mod tests {
     #[test]
     fn test_marathon_complete_title() {
         let mut state = state();
-        state.game_over = true;
-        state.marathon_complete = true;
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::MarathonComplete,
+            piece: None,
+        };
         let buffer = draw(WIDTH, HEIGHT, |f| {
             Renderer::draw_game_over_screen(f, &state)
         });
@@ -675,7 +678,7 @@ mod tests {
     fn test_buffer_rows_above_skyline_are_visible() {
         let mut state = state();
         state.next_pieces.clear();
-        state.current_piece = Some(Tetrimino::at_generation(TetriminoType::O, 10));
+        state.phase = Phase::Falling(Tetrimino::at_generation(TetriminoType::O, 10));
         // At generation, before any drop, the O sits entirely above the Skyline.
         assert_eq!(count(&draw_state(&state), "█"), 8);
     }

@@ -1,0 +1,436 @@
+use crate::config::GameConfig;
+
+/// Marathon ends after this level (Guideline 12.1).
+const MAX_LEVEL: u32 = 15;
+
+/// Kind of T-Spin recognized when a Tetrimino Locks Down (Guideline 9).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TSpin {
+    None,
+    Mini,
+    Full,
+}
+
+/// What an awarded action means for the rest of the game.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ActionResult {
+    /// Text to announce, if the Guideline wants this action announced (Guideline 13.1.5).
+    pub notification: Option<String>,
+    /// True if this action finished the final level.
+    pub marathon_complete: bool,
+}
+
+/// Score, level and Goal for one game (Guideline 6 and 8).
+pub struct Scoring {
+    pub score: u64,
+    pub level: u32,
+    pub lines_cleared: u32,
+    /// Lines (or awarded Line Clears) left to reach the Goal.
+    pub lines_until_next_level: u32,
+    starting_level: u32,
+    lines_per_level: u32,
+    variable_goal: bool,
+    back_to_back_active: bool,
+}
+
+impl Scoring {
+    pub fn new(config: &GameConfig) -> Self {
+        let mut scoring = Self {
+            score: 0,
+            level: config.starting_level,
+            lines_cleared: 0,
+            lines_until_next_level: 0,
+            starting_level: config.starting_level,
+            lines_per_level: config.lines_per_level,
+            variable_goal: config.enable_variable_goal,
+            back_to_back_active: false,
+        };
+        scoring.lines_until_next_level = scoring.starting_goal();
+        scoring
+    }
+
+    /// Awards 1 point per Soft Dropped row, independent of level (Guideline 8).
+    pub fn add_soft_drop(&mut self, rows: u64) {
+        self.score += rows;
+    }
+
+    /// Awards 2 points per Hard Dropped row, independent of level (Guideline 8).
+    pub fn add_hard_drop(&mut self, rows: u64) {
+        self.score += 2 * rows;
+    }
+
+    /// Scores the result of a Lock Down, and updates Back-to-Back and the Goal.
+    pub fn award_action(&mut self, tspin: TSpin, lines: u32) -> ActionResult {
+        self.lines_cleared += lines;
+
+        // The scoring table has no Mini T-Spin clearing 2 or more lines.
+        let tspin = match tspin {
+            TSpin::Mini if lines >= 2 => TSpin::Full,
+            other => other,
+        };
+
+        let action_total = action_points(tspin, lines);
+        if action_total == 0 {
+            return ActionResult::default();
+        }
+
+        let qualifies = lines > 0 && (lines == 4 || tspin != TSpin::None);
+        let is_back_to_back = qualifies && self.back_to_back_active;
+        let bonus = if is_back_to_back { action_total / 2 } else { 0 };
+        let total = action_total + bonus;
+
+        self.score += total * self.level as u64;
+
+        // Only a Line Clear changes the sequence: a no-clear T-Spin neither starts nor breaks it.
+        if lines > 0 {
+            self.back_to_back_active = qualifies;
+        }
+
+        let goal_credit = if self.variable_goal {
+            (total / 100) as u32
+        } else {
+            lines
+        };
+
+        ActionResult {
+            notification: notification_text(tspin, lines, is_back_to_back),
+            marathon_complete: self.advance_goal(goal_credit),
+        }
+    }
+
+    /// Progress toward the Goal as (done, total), in lines or awarded Line Clears.
+    pub fn goal_progress(&self) -> (u32, u32) {
+        let total = if self.level == self.starting_level {
+            self.starting_goal()
+        } else {
+            self.goal_for_level(self.level)
+        };
+        (total.saturating_sub(self.lines_until_next_level), total)
+    }
+
+    /// Goal for a level reached by playing through the one before it.
+    fn goal_for_level(&self, level: u32) -> u32 {
+        if self.variable_goal {
+            5 * level
+        } else {
+            self.lines_per_level
+        }
+    }
+
+    /// First Goal of a game. Starting higher includes the levels skipped (Guideline 6).
+    fn starting_goal(&self) -> u32 {
+        if self.variable_goal {
+            5 * self.level
+        } else {
+            self.lines_per_level * self.level
+        }
+    }
+
+    /// Applies credit toward the Goal. Returns true if it finished the final level.
+    fn advance_goal(&mut self, credit: u32) -> bool {
+        let mut remaining = credit;
+        while remaining >= self.lines_until_next_level {
+            remaining -= self.lines_until_next_level;
+            if self.level >= MAX_LEVEL {
+                self.lines_until_next_level = 0;
+                return true;
+            }
+            self.level += 1;
+            self.lines_until_next_level = self.goal_for_level(self.level);
+        }
+        self.lines_until_next_level -= remaining;
+        false
+    }
+}
+
+/// Action total at level 1 from the scoring table (Guideline 8).
+fn action_points(tspin: TSpin, lines: u32) -> u64 {
+    match (tspin, lines) {
+        (TSpin::None, 1) => 100,
+        (TSpin::None, 2) => 300,
+        (TSpin::None, 3) => 500,
+        (TSpin::None, 4) => 800,
+        (TSpin::Mini, 0) => 100,
+        (TSpin::Mini, 1) => 200,
+        (TSpin::Full, 0) => 400,
+        (TSpin::Full, 1) => 800,
+        (TSpin::Full, 2) => 1200,
+        (TSpin::Full, 3) => 1600,
+        _ => 0,
+    }
+}
+
+/// Name shown for actions the Guideline wants announced (Guideline 13.1.5).
+fn action_name(tspin: TSpin, lines: u32) -> Option<&'static str> {
+    match (tspin, lines) {
+        (TSpin::None, 4) => Some("Tetris"),
+        (TSpin::Mini, 0) => Some("Mini T-Spin"),
+        (TSpin::Mini, 1) => Some("Mini T-Spin Single"),
+        (TSpin::Full, 0) => Some("T-Spin"),
+        (TSpin::Full, 1) => Some("T-Spin Single"),
+        (TSpin::Full, 2) => Some("T-Spin Double"),
+        (TSpin::Full, 3) => Some("T-Spin Triple"),
+        _ => None,
+    }
+}
+
+fn notification_text(tspin: TSpin, lines: u32, is_back_to_back: bool) -> Option<String> {
+    let name = action_name(tspin, lines)?;
+    if is_back_to_back {
+        Some(format!("Back-to-Back {name}"))
+    } else {
+        Some(name.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scoring() -> Scoring {
+        Scoring::new(&GameConfig::default())
+    }
+
+    fn scoring_with(config: GameConfig) -> Scoring {
+        Scoring::new(&config)
+    }
+
+    #[test]
+    fn test_line_clear_scores_match_guideline() {
+        for (lines, points) in [(1, 100), (2, 300), (3, 500), (4, 800)] {
+            let mut scoring = scoring();
+            scoring.level = 3;
+            scoring.award_action(TSpin::None, lines);
+            assert_eq!(scoring.score, points * 3, "{lines} lines");
+        }
+    }
+
+    #[test]
+    fn test_tspin_scores_match_guideline() {
+        let cases = [
+            (TSpin::Mini, 0, 100),
+            (TSpin::Mini, 1, 200),
+            (TSpin::Full, 0, 400),
+            (TSpin::Full, 1, 800),
+            (TSpin::Full, 2, 1200),
+            (TSpin::Full, 3, 1600),
+        ];
+        for (tspin, lines, points) in cases {
+            let mut scoring = scoring();
+            scoring.award_action(tspin, lines);
+            assert_eq!(scoring.score, points, "{tspin:?} {lines}");
+        }
+    }
+
+    #[test]
+    fn test_mini_tspin_clearing_two_lines_scores_as_tspin_double() {
+        let mut scoring = scoring();
+        let result = scoring.award_action(TSpin::Mini, 2);
+        assert_eq!(scoring.score, 1200);
+        assert_eq!(result.notification.as_deref(), Some("T-Spin Double"));
+    }
+
+    #[test]
+    fn test_plain_lock_scores_nothing() {
+        let mut scoring = scoring();
+        assert_eq!(
+            scoring.award_action(TSpin::None, 0),
+            ActionResult::default()
+        );
+        assert_eq!(scoring.score, 0);
+    }
+
+    #[test]
+    fn test_drop_points_ignore_level() {
+        let mut scoring = scoring();
+        scoring.level = 7;
+        scoring.add_soft_drop(3);
+        scoring.add_hard_drop(5);
+        assert_eq!(scoring.score, 13);
+    }
+
+    #[test]
+    fn test_lines_cleared_accumulates() {
+        let mut scoring = scoring();
+        scoring.award_action(TSpin::None, 2);
+        scoring.award_action(TSpin::None, 0);
+        scoring.award_action(TSpin::None, 3);
+        assert_eq!(scoring.lines_cleared, 5);
+    }
+
+    #[test]
+    fn test_back_to_back_example_totals_5400() {
+        // Guideline 8.1: Tetris, T-Spin Double, T-Spin, Tetris, T-Spin Single at level 1.
+        let mut scoring = scoring_with(GameConfig {
+            lines_per_level: 1000,
+            ..GameConfig::default()
+        });
+        scoring.award_action(TSpin::None, 4);
+        scoring.award_action(TSpin::Full, 2);
+        scoring.award_action(TSpin::Full, 0);
+        scoring.award_action(TSpin::None, 4);
+        scoring.award_action(TSpin::Full, 1);
+        assert_eq!(scoring.score, 5400);
+    }
+
+    #[test]
+    fn test_single_breaks_back_to_back() {
+        let mut scoring = scoring();
+        scoring.award_action(TSpin::None, 4);
+        scoring.award_action(TSpin::None, 1);
+        let before = scoring.score;
+        scoring.award_action(TSpin::None, 4);
+        assert_eq!(scoring.score - before, 800);
+    }
+
+    #[test]
+    fn test_plain_lock_keeps_back_to_back() {
+        let mut scoring = scoring();
+        scoring.award_action(TSpin::None, 4);
+        scoring.award_action(TSpin::None, 0);
+        assert!(scoring.back_to_back_active);
+    }
+
+    #[test]
+    fn test_no_clear_tspin_cannot_start_back_to_back() {
+        let mut scoring = scoring();
+        scoring.award_action(TSpin::Full, 0);
+        assert!(!scoring.back_to_back_active);
+    }
+
+    #[test]
+    fn test_notifications_name_the_action() {
+        let mut scoring = scoring();
+        let text = |result: ActionResult| result.notification;
+        assert_eq!(text(scoring.award_action(TSpin::None, 1)), None);
+        assert_eq!(
+            text(scoring.award_action(TSpin::None, 4)).as_deref(),
+            Some("Tetris")
+        );
+        assert_eq!(
+            text(scoring.award_action(TSpin::Full, 2)).as_deref(),
+            Some("Back-to-Back T-Spin Double")
+        );
+    }
+
+    #[test]
+    fn test_fixed_goal_levels_up_every_10_lines_and_carries_overflow() {
+        let mut scoring = scoring();
+        assert_eq!(scoring.lines_until_next_level, 10);
+        scoring.advance_goal(5);
+        assert_eq!((scoring.level, scoring.lines_until_next_level), (1, 5));
+        scoring.advance_goal(5);
+        assert_eq!((scoring.level, scoring.lines_until_next_level), (2, 10));
+        scoring.advance_goal(13);
+        assert_eq!((scoring.level, scoring.lines_until_next_level), (3, 7));
+    }
+
+    #[test]
+    fn test_fixed_goal_higher_start_includes_skipped_levels() {
+        // Guideline 6: starting on level 4 requires 40 lines, then 10 for level 5.
+        let mut scoring = scoring_with(GameConfig {
+            starting_level: 4,
+            ..GameConfig::default()
+        });
+        assert_eq!(scoring.lines_until_next_level, 40);
+        scoring.advance_goal(40);
+        assert_eq!((scoring.level, scoring.lines_until_next_level), (5, 10));
+    }
+
+    #[test]
+    fn test_variable_goal_is_5_times_level() {
+        let mut scoring = scoring_with(GameConfig {
+            enable_variable_goal: true,
+            ..GameConfig::default()
+        });
+        assert_eq!(scoring.lines_until_next_level, 5);
+        scoring.advance_goal(5);
+        assert_eq!((scoring.level, scoring.lines_until_next_level), (2, 10));
+        scoring.advance_goal(10);
+        assert_eq!((scoring.level, scoring.lines_until_next_level), (3, 15));
+    }
+
+    #[test]
+    fn test_variable_goal_awards_table_line_clears() {
+        // Guideline 6.1: score at level 1 / 100, with Back-to-Back adding half.
+        let cases = [
+            (TSpin::None, 1, 1),
+            (TSpin::Mini, 0, 1),
+            (TSpin::Mini, 1, 2),
+            (TSpin::None, 2, 3),
+            (TSpin::Full, 0, 4),
+            (TSpin::None, 3, 5),
+            (TSpin::None, 4, 8),
+            (TSpin::Full, 1, 8),
+            (TSpin::Full, 2, 12),
+            (TSpin::Full, 3, 16),
+        ];
+        for (tspin, lines, awarded) in cases {
+            let mut scoring = scoring_with(GameConfig {
+                enable_variable_goal: true,
+                starting_level: 15,
+                ..GameConfig::default()
+            });
+            let before = scoring.lines_until_next_level;
+            scoring.award_action(tspin, lines);
+            assert_eq!(
+                before - scoring.lines_until_next_level,
+                awarded,
+                "{tspin:?} {lines}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_variable_goal_back_to_back_adds_half() {
+        let mut scoring = scoring_with(GameConfig {
+            enable_variable_goal: true,
+            starting_level: 15,
+            ..GameConfig::default()
+        });
+        scoring.award_action(TSpin::None, 4);
+        let before = scoring.lines_until_next_level;
+        scoring.award_action(TSpin::None, 4);
+        assert_eq!(before - scoring.lines_until_next_level, 12);
+    }
+
+    #[test]
+    fn test_marathon_ends_after_level_15() {
+        let mut scoring = scoring_with(GameConfig {
+            starting_level: 15,
+            ..GameConfig::default()
+        });
+        scoring.lines_until_next_level = 2;
+        assert!(scoring.award_action(TSpin::None, 2).marathon_complete);
+        assert_eq!(scoring.level, 15);
+    }
+
+    #[test]
+    fn test_marathon_continues_below_level_15() {
+        let mut scoring = scoring();
+        assert!(!scoring.award_action(TSpin::None, 4).marathon_complete);
+    }
+
+    #[test]
+    fn test_goal_progress_follows_the_current_goal() {
+        let mut scoring = scoring_with(GameConfig {
+            starting_level: 4,
+            ..GameConfig::default()
+        });
+        assert_eq!(scoring.goal_progress(), (0, 40));
+        scoring.advance_goal(15);
+        assert_eq!(scoring.goal_progress(), (15, 40));
+        scoring.advance_goal(28);
+        assert_eq!((scoring.level, scoring.goal_progress()), (5, (3, 10)));
+    }
+
+    #[test]
+    fn test_goal_progress_with_variable_goal() {
+        let mut scoring = scoring_with(GameConfig {
+            enable_variable_goal: true,
+            ..GameConfig::default()
+        });
+        scoring.advance_goal(7);
+        assert_eq!((scoring.level, scoring.goal_progress()), (2, (2, 10)));
+    }
+}

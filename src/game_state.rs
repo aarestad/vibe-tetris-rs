@@ -1,5 +1,6 @@
 use crate::board::Board;
 use crate::config::{GameConfig, LockDownMode};
+use crate::scoring::{Scoring, TSpin};
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
 use rand::rng;
 use rand::seq::SliceRandom;
@@ -11,8 +12,6 @@ const LOCK_DELAY: Duration = Duration::from_millis(500);
 const MAX_LOCK_MOVES: u32 = 15;
 /// Delay between Lock Down and the Next Tetrimino (Guideline A1.2.1).
 const GENERATION_DELAY: Duration = Duration::from_millis(200);
-/// Marathon ends after this level (Guideline 12.1).
-const MAX_LEVEL: u32 = 15;
 /// Soft Drop speed relative to normal Fall Speed (Guideline 5.5).
 const SOFT_DROP_FACTOR: u32 = 20;
 /// How long an action notification stays on screen.
@@ -20,14 +19,6 @@ const NOTIFICATION_TIME: Duration = Duration::from_secs(2);
 const LINE_CLEAR_BASE: Duration = Duration::from_millis(100);
 const LINE_CLEAR_PER_LINE: Duration = Duration::from_millis(150);
 const LINE_CLEAR_BLINK: Duration = Duration::from_millis(75);
-
-/// Kind of T-Spin recognized when a Tetrimino Locks Down (Guideline 9).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TSpin {
-    None,
-    Mini,
-    Full,
-}
 
 /// Normal Fall Speed in seconds per line for a level (Guideline 7).
 pub fn fall_interval(level: u32) -> Duration {
@@ -54,36 +45,52 @@ impl LockState {
     }
 }
 
+/// Why a game ended (Guideline 10 and 12.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GameOutcome {
+    /// A new Tetrimino's generation position was blocked.
+    BlockOut,
+    /// A whole Tetrimino Locked Down above the Skyline.
+    LockOut,
+    /// The player quit.
+    Quit,
+    /// The player finished the final Marathon level.
+    MarathonComplete,
+}
+
+/// The stage a game is in. Each Tetrimino goes through these in turn (Guideline A1.1).
+pub enum Phase {
+    /// Waiting to generate the Next Tetrimino.
+    Generation { remaining: Duration },
+    /// A Tetrimino is in play, falling or waiting to Lock Down.
+    Falling(Tetrimino),
+    /// Full lines are animating and have not been removed yet.
+    LineClear(LineClearAnimation),
+    /// The game has ended. `piece` is a Tetrimino still on screen, if there is one.
+    GameOver {
+        outcome: GameOutcome,
+        piece: Option<Tetrimino>,
+    },
+}
+
 pub struct GameState {
     pub board: Board,
-    pub current_piece: Option<Tetrimino>,
     pub held_piece: Option<TetriminoType>,
     pub next_pieces: Vec<TetriminoType>,
-    pub score: u64,
-    pub level: u32,
-    pub lines_cleared: u32,
-    pub game_over: bool,
-    /// True when the game ended by finishing level 15, not by a Game Over Condition.
-    pub marathon_complete: bool,
+    pub scoring: Scoring,
     pub config: GameConfig,
-    /// Lines (or awarded Line Clears) left to reach the Goal.
-    pub lines_until_next_level: u32,
-    pub line_clear_animation: Option<LineClearAnimation>,
-    pub pending_line_clear: bool,
+    pub(crate) phase: Phase,
     /// Time played, excluding pauses.
     pub elapsed: Duration,
     /// True while the help overlay is open, which stops play.
     pub show_help: bool,
     bag: Vec<TetriminoType>,
-    back_to_back_active: bool,
     hold_used: bool,
     soft_dropping: bool,
     fall_progress: Duration,
     lock: LockState,
-    generation_delay: Option<Duration>,
     last_move_was_rotation: bool,
     used_rotation_point_5: bool,
-    pending_tspin: TSpin,
     notification: Option<(String, Duration)>,
 }
 
@@ -91,6 +98,8 @@ pub struct LineClearAnimation {
     pub cleared_rows: Vec<i32>,
     pub elapsed: Duration,
     pub total_lines: u32,
+    /// T-Spin recognized at Lock Down, scored once the lines are removed.
+    tspin: TSpin,
 }
 
 impl LineClearAnimation {
@@ -101,69 +110,106 @@ impl LineClearAnimation {
 
 impl GameState {
     pub fn new(config: GameConfig) -> Self {
-        let starting_level = config.starting_level;
-
         let mut game_state = Self {
             board: Board::new(config.board_width, config.board_height),
-            current_piece: None,
             held_piece: None,
             next_pieces: Vec::new(),
-            score: 0,
-            level: starting_level,
-            lines_cleared: 0,
-            game_over: false,
-            marathon_complete: false,
-            lines_until_next_level: 0,
+            scoring: Scoring::new(&config),
             config,
-            line_clear_animation: None,
-            pending_line_clear: false,
+            phase: Phase::Generation {
+                remaining: Duration::ZERO,
+            },
             elapsed: Duration::ZERO,
             show_help: false,
             bag: Vec::new(),
-            back_to_back_active: false,
             hold_used: false,
             soft_dropping: false,
             fall_progress: Duration::ZERO,
             lock: LockState::new(0),
-            generation_delay: None,
             last_move_was_rotation: false,
             used_rotation_point_5: false,
-            pending_tspin: TSpin::None,
             notification: None,
         };
 
-        game_state.lines_until_next_level = game_state.starting_goal();
         game_state.refill_bag();
         game_state.populate_next_pieces();
         game_state
     }
 
-    /// Advances all timers: Line Clear animation, generation, gravity and Lock Down.
+    /// Advances the current phase and all timers.
     pub fn tick(&mut self, dt: Duration) {
-        if self.game_over || self.show_help {
+        if self.is_game_over() || self.show_help {
             return;
         }
         self.elapsed += dt;
         self.update_notification(dt);
 
-        if self.pending_line_clear {
-            self.update_line_clear_animation(dt);
-            return;
-        }
-
-        if let Some(remaining) = self.generation_delay {
-            if remaining <= dt {
-                self.generation_delay = None;
-                self.spawn_piece();
-            } else {
-                self.generation_delay = Some(remaining - dt);
+        match &mut self.phase {
+            Phase::Generation { remaining } => {
+                if *remaining <= dt {
+                    self.spawn_piece();
+                } else {
+                    *remaining -= dt;
+                }
             }
-            return;
+            Phase::Falling(_) => {
+                self.apply_gravity(dt);
+                self.update_lock_down(dt);
+            }
+            Phase::LineClear(animation) => {
+                animation.elapsed += dt;
+                if animation.elapsed >= animation.duration() {
+                    self.complete_line_clear();
+                }
+            }
+            Phase::GameOver { .. } => {}
         }
+    }
 
-        if self.current_piece.is_some() {
-            self.apply_gravity(dt);
-            self.update_lock_down(dt);
+    /// The Tetrimino in play, if the game is in the Falling phase.
+    fn falling_piece(&self) -> Option<Tetrimino> {
+        match self.phase {
+            Phase::Falling(piece) => Some(piece),
+            _ => None,
+        }
+    }
+
+    /// The Tetrimino to draw: the one in play, or the one left on screen when the game ended.
+    pub fn current_piece(&self) -> Option<Tetrimino> {
+        match self.phase {
+            Phase::Falling(piece) => Some(piece),
+            Phase::GameOver { piece, .. } => piece,
+            _ => None,
+        }
+    }
+
+    pub fn is_game_over(&self) -> bool {
+        matches!(self.phase, Phase::GameOver { .. })
+    }
+
+    /// Why the game ended, if it has.
+    pub fn outcome(&self) -> Option<GameOutcome> {
+        match self.phase {
+            Phase::GameOver { outcome, .. } => Some(outcome),
+            _ => None,
+        }
+    }
+
+    /// The running Line Clear animation, if there is one.
+    pub fn line_clear_animation(&self) -> Option<&LineClearAnimation> {
+        match &self.phase {
+            Phase::LineClear(animation) => Some(animation),
+            _ => None,
+        }
+    }
+
+    /// Ends the game because the player quit. A game that has already ended keeps its outcome.
+    pub fn quit(&mut self) {
+        if !self.is_game_over() {
+            self.phase = Phase::GameOver {
+                outcome: GameOutcome::Quit,
+                piece: self.current_piece(),
+            };
         }
     }
 
@@ -176,22 +222,13 @@ impl GameState {
         }
     }
 
-    fn update_line_clear_animation(&mut self, dt: Duration) {
-        if let Some(animation) = &mut self.line_clear_animation {
-            animation.elapsed += dt;
-        }
-        if !self.is_line_clear_animation_active() {
-            self.complete_line_clear();
-        }
-    }
-
     fn apply_gravity(&mut self, dt: Duration) {
         if !self.can_fall() {
             self.fall_progress = Duration::ZERO;
             return;
         }
 
-        let mut interval = fall_interval(self.level);
+        let mut interval = fall_interval(self.scoring.level);
         if self.soft_dropping {
             interval /= SOFT_DROP_FACTOR;
         }
@@ -207,7 +244,7 @@ impl GameState {
     }
 
     fn update_lock_down(&mut self, dt: Duration) {
-        if self.current_piece.is_none() || self.can_fall() {
+        if self.falling_piece().is_none() || self.can_fall() {
             return;
         }
         self.lock.has_landed = true;
@@ -222,7 +259,7 @@ impl GameState {
     }
 
     fn can_fall(&self) -> bool {
-        self.current_piece.is_some_and(|piece| {
+        self.falling_piece().is_some_and(|piece| {
             let below = Tetrimino {
                 y: piece.y + 1,
                 ..piece
@@ -236,7 +273,7 @@ impl GameState {
             return false;
         }
         if self.soft_dropping {
-            self.score += 1;
+            self.scoring.add_soft_drop(1);
         }
         self.last_move_was_rotation = false;
         self.note_new_lowest_row();
@@ -245,7 +282,7 @@ impl GameState {
 
     /// Falling below the lowest row reached restores the timer and move count.
     fn note_new_lowest_row(&mut self) {
-        if let Some(piece) = self.current_piece
+        if let Some(piece) = self.falling_piece()
             && piece.y > self.lock.lowest_y
         {
             self.lock = LockState::new(piece.y);
@@ -268,7 +305,7 @@ impl GameState {
     }
 
     /// Generates the Next Tetrimino from the Next Queue.
-    pub fn spawn_piece(&mut self) {
+    fn spawn_piece(&mut self) {
         if self.next_pieces.is_empty() {
             return;
         }
@@ -281,16 +318,19 @@ impl GameState {
     /// A blocked generation position is a Block Out (Guideline 10).
     fn place_piece(&mut self, kind: TetriminoType) {
         let piece = Tetrimino::at_generation(kind, self.board.get_width());
-        self.current_piece = Some(piece);
         self.lock = LockState::new(piece.y);
         self.fall_progress = Duration::ZERO;
         self.last_move_was_rotation = false;
         self.used_rotation_point_5 = false;
 
         if !self.board.is_valid_position(&piece) {
-            self.game_over = true;
+            self.phase = Phase::GameOver {
+                outcome: GameOutcome::BlockOut,
+                piece: Some(piece),
+            };
             return;
         }
+        self.phase = Phase::Falling(piece);
         self.fall_one_row_silently();
     }
 
@@ -302,19 +342,19 @@ impl GameState {
 
     /// Moves the Tetrimino in play if the target position is free. Applies no game rules.
     pub fn move_piece(&mut self, dx: i32, dy: i32) -> bool {
-        if let Some(ref mut piece) = self.current_piece {
-            piece.x += dx;
-            piece.y += dy;
-
-            if !self.board.is_valid_position(piece) {
-                piece.x -= dx;
-                piece.y -= dy;
-                return false;
-            }
-            true
-        } else {
-            false
+        let Phase::Falling(piece) = &mut self.phase else {
+            return false;
+        };
+        let moved = Tetrimino {
+            x: piece.x + dx,
+            y: piece.y + dy,
+            ..*piece
+        };
+        if !self.board.is_valid_position(&moved) {
+            return false;
         }
+        *piece = moved;
+        true
     }
 
     /// Player move left or right (Guideline 5.1).
@@ -346,7 +386,7 @@ impl GameState {
     pub fn soft_drop_step(&mut self) -> bool {
         let moved = self.move_piece(0, 1);
         if moved {
-            self.score += 1;
+            self.scoring.add_soft_drop(1);
             self.last_move_was_rotation = false;
             self.note_new_lowest_row();
         }
@@ -356,7 +396,7 @@ impl GameState {
     /// Rotates using the Super Rotation System (Guideline A1.4). The first rotation point
     /// that fits is used. Returns false if none fit.
     pub fn rotate_piece(&mut self, clockwise: bool) -> bool {
-        let Some(piece) = self.current_piece else {
+        let Some(piece) = self.falling_piece() else {
             return false;
         };
         // All O-Tetrimino facings occupy the same cells, so rotating changes nothing.
@@ -379,7 +419,7 @@ impl GameState {
                 ..piece
             };
             if self.board.is_valid_position(&candidate) {
-                self.current_piece = Some(candidate);
+                self.phase = Phase::Falling(candidate);
                 self.last_move_was_rotation = true;
                 self.used_rotation_point_5 |= point == 5;
                 self.note_manipulation();
@@ -391,64 +431,75 @@ impl GameState {
 
     /// Drops to the Surface below and Locks Down at once, for 2 points per row (Guideline 8).
     pub fn hard_drop(&mut self) {
-        if self.current_piece.is_none() {
+        if self.falling_piece().is_none() {
             return;
         }
+        let mut rows = 0;
         while self.move_piece(0, 1) {
-            self.score += 2;
+            rows += 1;
             self.last_move_was_rotation = false;
         }
+        self.scoring.add_hard_drop(rows);
         self.lock_current_piece();
     }
 
     /// Locks the Tetrimino in play and starts the Pattern and Animate phases.
     pub fn lock_current_piece(&mut self) {
-        let Some(piece) = self.current_piece else {
+        let Some(piece) = self.falling_piece() else {
             return;
         };
-        self.pending_tspin = self.detect_tspin(&piece);
-        self.current_piece = None;
+        let tspin = self.detect_tspin(&piece);
         self.board.lock_tetromino(&piece);
         self.hold_used = false;
 
         // A whole Tetrimino above the Skyline is a Lock Out (Guideline 10).
         if piece.get_blocks().iter().all(|(_, dy)| piece.y + dy < 0) {
-            self.game_over = true;
+            self.phase = Phase::GameOver {
+                outcome: GameOutcome::LockOut,
+                piece: None,
+            };
             return;
         }
 
         let cleared_rows = self.board.get_full_lines();
         if cleared_rows.is_empty() {
-            self.award_action(0);
-            self.finish_piece();
+            self.finish_action(tspin, 0);
         } else {
-            self.line_clear_animation = Some(LineClearAnimation {
+            self.phase = Phase::LineClear(LineClearAnimation {
                 total_lines: cleared_rows.len() as u32,
                 cleared_rows,
                 elapsed: Duration::ZERO,
+                tspin,
             });
-            self.pending_line_clear = true;
         }
     }
 
-    /// Eliminate and Completion phases: removes the lines and awards the action.
+    /// Eliminate phase: removes the lines, then scores them.
     pub fn complete_line_clear(&mut self) {
-        if !self.pending_line_clear {
+        let Phase::LineClear(animation) = &self.phase else {
             return;
-        }
-        self.pending_line_clear = false;
-        self.line_clear_animation = None;
-
+        };
+        let tspin = animation.tspin;
         let lines = self.board.clear_lines();
-        self.lines_cleared += lines;
-        self.award_action(lines);
-        self.finish_piece();
+        self.finish_action(tspin, lines);
     }
 
-    fn finish_piece(&mut self) {
-        if !self.game_over {
-            self.generation_delay = Some(GENERATION_DELAY);
+    /// Completion phase: scores the action, then moves on to the next phase.
+    fn finish_action(&mut self, tspin: TSpin, lines: u32) {
+        let result = self.scoring.award_action(tspin, lines);
+        if let Some(text) = result.notification {
+            self.notification = Some((text, NOTIFICATION_TIME));
         }
+        self.phase = if result.marathon_complete {
+            Phase::GameOver {
+                outcome: GameOutcome::MarathonComplete,
+                piece: None,
+            }
+        } else {
+            Phase::Generation {
+                remaining: GENERATION_DELAY,
+            }
+        };
     }
 
     /// Recognizes a T-Spin from the four cells diagonal to the T's center (Guideline 9.1).
@@ -477,83 +528,6 @@ impl GameState {
         } else {
             TSpin::None
         }
-    }
-
-    /// Scores the action, updates Back-to-Back and the Goal (Guideline 6, 8).
-    fn award_action(&mut self, lines: u32) {
-        // The scoring table has no Mini T-Spin clearing 2 or more lines.
-        let tspin = match self.pending_tspin {
-            TSpin::Mini if lines >= 2 => TSpin::Full,
-            other => other,
-        };
-        self.pending_tspin = TSpin::None;
-
-        let action_total = action_points(tspin, lines);
-        if action_total == 0 {
-            return;
-        }
-
-        let qualifies = lines > 0 && (lines == 4 || tspin != TSpin::None);
-        let is_back_to_back = qualifies && self.back_to_back_active;
-        let bonus = if is_back_to_back { action_total / 2 } else { 0 };
-        let total = action_total + bonus;
-
-        self.score += total * self.level as u64;
-
-        // Only a Line Clear changes the sequence: a no-clear T-Spin neither starts nor breaks it.
-        if lines > 0 {
-            self.back_to_back_active = qualifies;
-        }
-
-        if let Some(name) = action_name(tspin, lines) {
-            let text = if is_back_to_back {
-                format!("Back-to-Back {name}")
-            } else {
-                name.to_string()
-            };
-            self.notification = Some((text, NOTIFICATION_TIME));
-        }
-
-        let goal_credit = if self.config.enable_variable_goal {
-            (total / 100) as u32
-        } else {
-            lines
-        };
-        self.advance_goal(goal_credit);
-    }
-
-    /// Goal for a level reached by playing through the one before it.
-    fn goal_for_level(&self, level: u32) -> u32 {
-        if self.config.enable_variable_goal {
-            5 * level
-        } else {
-            self.config.lines_per_level
-        }
-    }
-
-    /// First Goal of a game. Starting higher includes the levels skipped (Guideline 6).
-    fn starting_goal(&self) -> u32 {
-        if self.config.enable_variable_goal {
-            5 * self.level
-        } else {
-            self.config.lines_per_level * self.level
-        }
-    }
-
-    fn advance_goal(&mut self, credit: u32) {
-        let mut remaining = credit;
-        while remaining >= self.lines_until_next_level {
-            remaining -= self.lines_until_next_level;
-            if self.level >= MAX_LEVEL {
-                self.lines_until_next_level = 0;
-                self.game_over = true;
-                self.marathon_complete = true;
-                return;
-            }
-            self.level += 1;
-            self.lines_until_next_level = self.goal_for_level(self.level);
-        }
-        self.lines_until_next_level -= remaining;
     }
 
     fn refill_bag(&mut self) {
@@ -588,7 +562,7 @@ impl GameState {
         if !self.config.enable_hold || self.hold_used {
             return;
         }
-        let Some(current) = self.current_piece.take() else {
+        let Some(current) = self.falling_piece() else {
             return;
         };
 
@@ -599,30 +573,14 @@ impl GameState {
         }
     }
 
-    pub fn is_line_clear_animation_active(&self) -> bool {
-        self.line_clear_animation
-            .as_ref()
-            .is_some_and(|animation| animation.elapsed < animation.duration())
-    }
-
     pub fn should_show_cleared_rows(&self) -> bool {
-        self.line_clear_animation.as_ref().is_some_and(|animation| {
+        self.line_clear_animation().is_some_and(|animation| {
             (animation.elapsed.as_millis() / LINE_CLEAR_BLINK.as_millis()).is_multiple_of(2)
         })
     }
 
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
-    }
-
-    /// Progress toward the Goal as (done, total), in lines or awarded Line Clears.
-    pub fn goal_progress(&self) -> (u32, u32) {
-        let total = if self.level == self.config.starting_level {
-            self.starting_goal()
-        } else {
-            self.goal_for_level(self.level)
-        };
-        (total.saturating_sub(self.lines_until_next_level), total)
     }
 
     #[cfg(test)]
@@ -633,37 +591,6 @@ impl GameState {
     /// Text of the current action notification, if one is showing (Guideline 13.1.5).
     pub fn notification_text(&self) -> Option<&str> {
         self.notification.as_ref().map(|(text, _)| text.as_str())
-    }
-}
-
-/// Action total at level 1 from the scoring table (Guideline 8).
-fn action_points(tspin: TSpin, lines: u32) -> u64 {
-    match (tspin, lines) {
-        (TSpin::None, 1) => 100,
-        (TSpin::None, 2) => 300,
-        (TSpin::None, 3) => 500,
-        (TSpin::None, 4) => 800,
-        (TSpin::Mini, 0) => 100,
-        (TSpin::Mini, 1) => 200,
-        (TSpin::Full, 0) => 400,
-        (TSpin::Full, 1) => 800,
-        (TSpin::Full, 2) => 1200,
-        (TSpin::Full, 3) => 1600,
-        _ => 0,
-    }
-}
-
-/// Name shown for actions the Guideline wants announced (Guideline 13.1.5).
-fn action_name(tspin: TSpin, lines: u32) -> Option<&'static str> {
-    match (tspin, lines) {
-        (TSpin::None, 4) => Some("Tetris"),
-        (TSpin::Mini, 0) => Some("Mini T-Spin"),
-        (TSpin::Mini, 1) => Some("Mini T-Spin Single"),
-        (TSpin::Full, 0) => Some("T-Spin"),
-        (TSpin::Full, 1) => Some("T-Spin Single"),
-        (TSpin::Full, 2) => Some("T-Spin Double"),
-        (TSpin::Full, 3) => Some("T-Spin Triple"),
-        _ => None,
     }
 }
 
@@ -734,7 +661,7 @@ mod tests {
         for y in 16..20 {
             fill_row_except(state, y, &[0]);
         }
-        state.current_piece = Some(piece(TetriminoType::I, -2, 16, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::I, -2, 16, 1));
         lock_and_clear(state);
     }
 
@@ -743,7 +670,7 @@ mod tests {
         fill_row_except(state, 19, &[4]);
         fill_row_except(state, 18, &[3, 4, 5]);
         fill(state, &[(3, 17)]);
-        state.current_piece = Some(piece(TetriminoType::T, 3, 17, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, 1));
         assert!(state.rotate_piece(true));
         lock_and_clear(state);
     }
@@ -774,9 +701,9 @@ mod tests {
         let mut state = new_state();
         state.next_pieces[0] = TetriminoType::T;
         state.spawn_piece();
-        let p = state.current_piece.unwrap();
+        let p = state.current_piece().unwrap();
         assert_eq!((p.x, p.y, p.rotation), (3, -1, 0));
-        assert!(!state.game_over);
+        assert!(!state.is_game_over());
     }
 
     #[test]
@@ -785,8 +712,8 @@ mod tests {
         state.next_pieces[0] = TetriminoType::T;
         fill(&mut state, &[(4, 0)]);
         state.spawn_piece();
-        assert_eq!(state.current_piece.unwrap().y, -2);
-        assert!(!state.game_over);
+        assert_eq!(state.current_piece().unwrap().y, -2);
+        assert!(!state.is_game_over());
     }
 
     #[test]
@@ -795,23 +722,23 @@ mod tests {
         state.next_pieces[0] = TetriminoType::T;
         fill(&mut state, &[(4, -1)]);
         state.spawn_piece();
-        assert!(state.game_over);
+        assert!(state.is_game_over());
     }
 
     #[test]
     fn test_lock_out_ends_game() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::O, 4, -3, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, 0));
         state.lock_current_piece();
-        assert!(state.game_over);
+        assert!(state.is_game_over());
     }
 
     #[test]
     fn test_peeking_lock_is_not_game_over() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::O, 4, -1, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -1, 0));
         state.lock_current_piece();
-        assert!(!state.game_over);
+        assert!(!state.is_game_over());
     }
 
     #[test]
@@ -819,13 +746,13 @@ mod tests {
         let mut state = new_state();
         state.spawn_piece();
         state.hard_drop();
-        assert!(state.current_piece.is_none());
+        assert!(state.current_piece().is_none());
 
         state.tick(GENERATION_DELAY - Duration::from_millis(1));
-        assert!(state.current_piece.is_none());
+        assert!(state.current_piece().is_none());
 
         state.tick(Duration::from_millis(1));
-        assert!(state.current_piece.is_some());
+        assert!(state.current_piece().is_some());
     }
 
     #[test]
@@ -858,11 +785,11 @@ mod tests {
     #[test]
     fn test_ccw_then_cw_does_not_overflow() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 5, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, 0));
         assert!(state.rotate_piece(false));
-        assert_eq!(state.current_piece.unwrap().rotation, 3);
+        assert_eq!(state.current_piece().unwrap().rotation, 3);
         assert!(state.rotate_piece(true));
-        assert_eq!(state.current_piece.unwrap().rotation, 0);
+        assert_eq!(state.current_piece().unwrap().rotation, 0);
     }
 
     #[test]
@@ -871,11 +798,11 @@ mod tests {
             for clockwise in [true, false] {
                 let mut state = new_state();
                 let start = piece(kind, 3, 5, 0);
-                state.current_piece = Some(start);
+                state.phase = Phase::Falling(start);
                 for _ in 0..4 {
                     state.rotate_piece(clockwise);
                 }
-                assert_eq!(state.current_piece.unwrap(), start, "{kind:?}");
+                assert_eq!(state.current_piece().unwrap(), start, "{kind:?}");
             }
         }
     }
@@ -884,9 +811,9 @@ mod tests {
     fn test_rotate_kicks_off_left_wall() {
         // East-facing T against the left wall: South would hit the wall, so Point 2 shifts right.
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, -1, 5, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::T, -1, 5, 1));
         assert!(state.rotate_piece(true));
-        let p = state.current_piece.unwrap();
+        let p = state.current_piece().unwrap();
         assert_eq!((p.x, p.y, p.rotation), (0, 5, 2));
     }
 
@@ -894,9 +821,9 @@ mod tests {
     fn test_rotate_kicks_off_floor_with_i() {
         // I North on the floor, rotating to East: only Point 5 (right 1, up 2) can fit.
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::I, 3, 18, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::I, 3, 18, 0));
         assert!(state.rotate_piece(true));
-        let p = state.current_piece.unwrap();
+        let p = state.current_piece().unwrap();
         assert_eq!((p.x, p.y, p.rotation), (4, 16, 1));
     }
 
@@ -905,9 +832,9 @@ mod tests {
         // Points 1 to 3 are blocked, and T North has no Point 4.
         let mut state = new_state();
         fill(&mut state, &[(4, 12), (3, 10)]);
-        state.current_piece = Some(piece(TetriminoType::T, 3, 10, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 10, 0));
         assert!(state.rotate_piece(true));
-        let p = state.current_piece.unwrap();
+        let p = state.current_piece().unwrap();
         assert_eq!((p.x, p.y, p.rotation), (2, 12, 1));
         assert!(state.used_rotation_point_5);
     }
@@ -924,18 +851,18 @@ mod tests {
             }
         }
         let start = piece(TetriminoType::T, 3, 9, 0);
-        state.current_piece = Some(start);
+        state.phase = Phase::Falling(start);
         assert!(!state.rotate_piece(true));
-        assert_eq!(state.current_piece.unwrap(), start);
+        assert_eq!(state.current_piece().unwrap(), start);
     }
 
     #[test]
     fn test_rotating_o_changes_nothing() {
         let mut state = new_state();
         let start = piece(TetriminoType::O, 4, 5, 0);
-        state.current_piece = Some(start);
+        state.phase = Phase::Falling(start);
         assert!(!state.rotate_piece(true));
-        assert_eq!(state.current_piece.unwrap(), start);
+        assert_eq!(state.current_piece().unwrap(), start);
     }
 
     // --- Fall Speed and drops ---
@@ -968,77 +895,77 @@ mod tests {
     #[test]
     fn test_gravity_follows_current_level() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.tick(Duration::from_millis(999));
-        assert_eq!(state.current_piece.unwrap().y, 0);
+        assert_eq!(state.current_piece().unwrap().y, 0);
         state.tick(Duration::from_millis(1));
-        assert_eq!(state.current_piece.unwrap().y, 1);
+        assert_eq!(state.current_piece().unwrap().y, 1);
 
-        state.level = 5;
+        state.scoring.level = 5;
         state.tick(fall_interval(5));
-        assert_eq!(state.current_piece.unwrap().y, 2);
+        assert_eq!(state.current_piece().unwrap().y, 2);
     }
 
     #[test]
     fn test_high_gravity_falls_many_rows_in_one_tick() {
         let mut state = new_state();
-        state.level = 15;
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.scoring.level = 15;
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.tick(Duration::from_millis(16));
-        assert!(state.current_piece.unwrap().y >= 2);
+        assert!(state.current_piece().unwrap().y >= 2);
     }
 
     #[test]
     fn test_soft_drop_is_20_times_faster_and_scores_per_row() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.set_soft_drop(true);
         state.tick(Duration::from_millis(50));
-        assert_eq!(state.current_piece.unwrap().y, 1);
+        assert_eq!(state.current_piece().unwrap().y, 1);
         state.tick(Duration::from_millis(50));
-        assert_eq!(state.current_piece.unwrap().y, 2);
-        assert_eq!(state.score, 2);
+        assert_eq!(state.current_piece().unwrap().y, 2);
+        assert_eq!(state.scoring.score, 2);
 
         state.set_soft_drop(false);
         state.tick(Duration::from_millis(50));
-        assert_eq!(state.current_piece.unwrap().y, 2);
-        assert_eq!(state.score, 2);
+        assert_eq!(state.current_piece().unwrap().y, 2);
+        assert_eq!(state.scoring.score, 2);
     }
 
     #[test]
     fn test_starting_soft_drop_does_not_release_built_up_gravity() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.tick(Duration::from_millis(900));
-        assert_eq!(state.current_piece.unwrap().y, 0);
+        assert_eq!(state.current_piece().unwrap().y, 0);
 
         state.set_soft_drop(true);
         state.tick(Duration::from_millis(1));
-        assert_eq!(state.current_piece.unwrap().y, 0);
-        assert_eq!(state.score, 0);
+        assert_eq!(state.current_piece().unwrap().y, 0);
+        assert_eq!(state.scoring.score, 0);
 
         // The remaining 10% of the row now takes 5 ms at Soft Drop speed.
         state.tick(Duration::from_millis(4));
-        assert_eq!(state.current_piece.unwrap().y, 1);
+        assert_eq!(state.current_piece().unwrap().y, 1);
     }
 
     #[test]
     fn test_ending_soft_drop_keeps_fraction_of_row() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.set_soft_drop(true);
         state.tick(Duration::from_millis(45));
         state.set_soft_drop(false);
         state.tick(Duration::from_millis(99));
-        assert_eq!(state.current_piece.unwrap().y, 0);
+        assert_eq!(state.current_piece().unwrap().y, 0);
         state.tick(Duration::from_millis(1));
-        assert_eq!(state.current_piece.unwrap().y, 1);
+        assert_eq!(state.current_piece().unwrap().y, 1);
     }
 
     #[test]
     fn test_setting_soft_drop_twice_changes_nothing() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.tick(Duration::from_millis(800));
         state.set_soft_drop(false);
         assert_eq!(state.fall_progress, Duration::from_millis(800));
@@ -1047,44 +974,44 @@ mod tests {
     #[test]
     fn test_soft_drop_step_scores_one_point() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         assert!(state.soft_drop_step());
-        assert_eq!(state.score, 1);
+        assert_eq!(state.scoring.score, 1);
     }
 
     #[test]
     fn test_soft_drop_landing_waits_for_lock_timer() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::O, 4, 18, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, 0));
         assert!(!state.soft_drop_step());
-        assert!(state.current_piece.is_some());
+        assert!(state.current_piece().is_some());
     }
 
     #[test]
     fn test_hard_drop_scores_two_per_row_and_locks() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::O, 4, 8, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 8, 0));
         state.hard_drop();
-        assert_eq!(state.score, 20);
-        assert!(state.current_piece.is_none());
+        assert_eq!(state.scoring.score, 20);
+        assert!(state.current_piece().is_none());
         assert_eq!(state.board.get_cell(4, 19), Some(TetriminoType::O));
     }
 
     #[test]
     fn test_hard_drop_scores_level_independently() {
         let mut state = new_state();
-        state.level = 7;
-        state.current_piece = Some(piece(TetriminoType::O, 4, 17, 0));
+        state.scoring.level = 7;
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 17, 0));
         state.hard_drop();
-        assert_eq!(state.score, 2);
+        assert_eq!(state.scoring.score, 2);
     }
 
     #[test]
     fn test_gravity_does_not_score() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.tick(Duration::from_secs(1));
-        assert_eq!(state.score, 0);
+        assert_eq!(state.scoring.score, 0);
     }
 
     // --- Lock Down ---
@@ -1092,7 +1019,7 @@ mod tests {
     fn landed_o(mode: LockDownMode) -> GameState {
         let mut state = state_with_mode(mode);
         let p = piece(TetriminoType::O, 4, 18, 0);
-        state.current_piece = Some(p);
+        state.phase = Phase::Falling(p);
         state.lock = LockState::new(p.y);
         state
     }
@@ -1101,9 +1028,9 @@ mod tests {
     fn test_landing_waits_half_a_second_before_locking() {
         let mut state = landed_o(LockDownMode::Extended);
         state.tick(Duration::from_millis(499));
-        assert!(state.current_piece.is_some());
+        assert!(state.current_piece().is_some());
         state.tick(Duration::from_millis(1));
-        assert!(state.current_piece.is_none());
+        assert!(state.current_piece().is_none());
     }
 
     #[test]
@@ -1112,9 +1039,9 @@ mod tests {
         state.tick(Duration::from_millis(400));
         assert!(state.shift_piece(1));
         state.tick(Duration::from_millis(400));
-        assert!(state.current_piece.is_some());
+        assert!(state.current_piece().is_some());
         state.tick(Duration::from_millis(100));
-        assert!(state.current_piece.is_none());
+        assert!(state.current_piece().is_none());
     }
 
     #[test]
@@ -1126,14 +1053,14 @@ mod tests {
             assert!(state.shift_piece(dx));
             state.tick(Duration::from_millis(1));
             let still_in_play = i + 1 < MAX_LOCK_MOVES;
-            assert_eq!(state.current_piece.is_some(), still_in_play, "move {i}");
+            assert_eq!(state.current_piece().is_some(), still_in_play, "move {i}");
         }
     }
 
     #[test]
     fn test_extended_moves_only_count_after_landing() {
         let mut state = state_with_mode(LockDownMode::Extended);
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         for _ in 0..3 {
             state.shift_piece(1);
             state.shift_piece(-1);
@@ -1145,7 +1072,7 @@ mod tests {
     fn test_extended_new_lowest_row_restores_moves() {
         let mut state = state_with_mode(LockDownMode::Extended);
         let p = piece(TetriminoType::O, 0, 10, 0);
-        state.current_piece = Some(p);
+        state.phase = Phase::Falling(p);
         state.lock = LockState::new(p.y);
         fill(&mut state, &[(0, 12), (1, 12)]);
         state.tick(Duration::from_millis(1));
@@ -1154,7 +1081,7 @@ mod tests {
         state.shift_piece(1);
         state.shift_piece(1);
         state.tick(Duration::from_secs(1));
-        assert_eq!(state.current_piece.unwrap().y, 11);
+        assert_eq!(state.current_piece().unwrap().y, 11);
         assert_eq!(state.lock.moves_left, MAX_LOCK_MOVES);
     }
 
@@ -1166,7 +1093,7 @@ mod tests {
             let dx = if i % 2 == 0 { 1 } else { -1 };
             assert!(state.shift_piece(dx));
         }
-        assert!(state.current_piece.is_some());
+        assert!(state.current_piece().is_some());
     }
 
     #[test]
@@ -1175,7 +1102,7 @@ mod tests {
         state.tick(Duration::from_millis(400));
         assert!(state.shift_piece(1));
         state.tick(Duration::from_millis(100));
-        assert!(state.current_piece.is_none());
+        assert!(state.current_piece().is_none());
     }
 
     #[test]
@@ -1183,7 +1110,7 @@ mod tests {
         let mut state = landed_o(LockDownMode::Classic);
         state.tick(Duration::from_millis(400));
         let before = state.lock.timer;
-        state.current_piece = Some(piece(TetriminoType::O, 4, 16, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 16, 0));
         state.apply_gravity(Duration::ZERO);
         state.update_lock_down(Duration::from_millis(100));
         assert_eq!(state.lock.timer, before);
@@ -1197,10 +1124,10 @@ mod tests {
             enable_hold: false,
             ..config()
         });
-        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        state.phase = Phase::Falling(Tetrimino::new(TetriminoType::T));
         state.held_piece = Some(TetriminoType::I);
         state.hold_piece();
-        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::T);
+        assert_eq!(state.current_piece().unwrap().kind, TetriminoType::T);
         assert_eq!(state.held_piece, Some(TetriminoType::I));
     }
 
@@ -1209,31 +1136,31 @@ mod tests {
         let mut state = new_state();
         state.held_piece = Some(TetriminoType::T);
         state.hold_piece();
-        assert_eq!(state.current_piece, None);
+        assert_eq!(state.current_piece(), None);
         assert_eq!(state.held_piece, Some(TetriminoType::T));
     }
 
     #[test]
     fn test_first_hold_takes_from_next_queue() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 5, 2));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, 2));
         state.next_pieces[0] = TetriminoType::I;
         state.hold_piece();
         assert_eq!(state.held_piece, Some(TetriminoType::T));
-        assert_eq!(state.current_piece.unwrap().kind, TetriminoType::I);
+        assert_eq!(state.current_piece().unwrap().kind, TetriminoType::I);
         assert_eq!(state.next_pieces.len(), 3);
     }
 
     #[test]
     fn test_hold_swap_returns_to_generation_position_facing_north() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 5, 10, 2));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 5, 10, 2));
         state.held_piece = Some(TetriminoType::J);
         let next_before = state.next_pieces.clone();
 
         state.hold_piece();
 
-        let p = state.current_piece.unwrap();
+        let p = state.current_piece().unwrap();
         assert_eq!((p.kind, p.x, p.y, p.rotation), (TetriminoType::J, 3, -1, 0));
         assert_eq!(state.held_piece, Some(TetriminoType::T));
         assert_eq!(state.next_pieces, next_before);
@@ -1242,14 +1169,14 @@ mod tests {
     #[test]
     fn test_hold_allowed_once_per_lock_down() {
         let mut state = new_state();
-        state.current_piece = Some(Tetrimino::at_generation(TetriminoType::T, 10));
+        state.phase = Phase::Falling(Tetrimino::at_generation(TetriminoType::T, 10));
         state.held_piece = Some(TetriminoType::I);
 
         state.hold_piece();
-        let after_first = state.current_piece.unwrap();
+        let after_first = state.current_piece().unwrap();
         state.hold_piece();
 
-        assert_eq!(state.current_piece.unwrap(), after_first);
+        assert_eq!(state.current_piece().unwrap(), after_first);
         assert_eq!(state.held_piece, Some(TetriminoType::T));
 
         state.hard_drop();
@@ -1267,88 +1194,7 @@ mod tests {
         state.hold_piece();
         assert!(state.held_piece.is_some());
         do_tetris(&mut state);
-        assert_eq!(state.score, 800 + 1200);
-    }
-
-    // --- Scoring ---
-
-    #[test]
-    fn test_line_clear_scores_match_guideline() {
-        for (lines, points) in [(1, 100), (2, 300), (3, 500), (4, 800)] {
-            let mut state = new_state();
-            state.level = 3;
-            state.award_action(lines);
-            assert_eq!(state.score, points * 3, "{lines} lines");
-        }
-    }
-
-    #[test]
-    fn test_tspin_scores_match_guideline() {
-        let cases = [
-            (TSpin::Mini, 0, 100),
-            (TSpin::Mini, 1, 200),
-            (TSpin::Full, 0, 400),
-            (TSpin::Full, 1, 800),
-            (TSpin::Full, 2, 1200),
-            (TSpin::Full, 3, 1600),
-        ];
-        for (tspin, lines, points) in cases {
-            let mut state = new_state();
-            state.pending_tspin = tspin;
-            state.award_action(lines);
-            assert_eq!(state.score, points, "{tspin:?} {lines}");
-        }
-    }
-
-    #[test]
-    fn test_plain_lock_scores_nothing() {
-        let mut state = new_state();
-        state.award_action(0);
-        assert_eq!(state.score, 0);
-    }
-
-    #[test]
-    fn test_back_to_back_example_totals_5400() {
-        // Guideline 8.1: Tetris, T-Spin Double, T-Spin, Tetris, T-Spin Single at level 1.
-        let mut state = GameState::new(GameConfig {
-            lines_per_level: 1000,
-            ..config()
-        });
-        state.award_action(4);
-        state.pending_tspin = TSpin::Full;
-        state.award_action(2);
-        state.pending_tspin = TSpin::Full;
-        state.award_action(0);
-        state.award_action(4);
-        state.pending_tspin = TSpin::Full;
-        state.award_action(1);
-        assert_eq!(state.score, 5400);
-    }
-
-    #[test]
-    fn test_single_breaks_back_to_back() {
-        let mut state = new_state();
-        state.award_action(4);
-        state.award_action(1);
-        let before = state.score;
-        state.award_action(4);
-        assert_eq!(state.score - before, 800);
-    }
-
-    #[test]
-    fn test_plain_lock_keeps_back_to_back() {
-        let mut state = new_state();
-        state.award_action(4);
-        state.award_action(0);
-        assert!(state.back_to_back_active);
-    }
-
-    #[test]
-    fn test_no_clear_tspin_cannot_start_back_to_back() {
-        let mut state = new_state();
-        state.pending_tspin = TSpin::Full;
-        state.award_action(0);
-        assert!(!state.back_to_back_active);
+        assert_eq!(state.scoring.score, 800 + 1200);
     }
 
     // --- T-Spin recognition ---
@@ -1357,8 +1203,8 @@ mod tests {
     fn test_tspin_double_through_real_rotation() {
         let mut state = new_state();
         do_tspin_double(&mut state);
-        assert_eq!(state.lines_cleared, 2);
-        assert_eq!(state.score, 1200);
+        assert_eq!(state.scoring.lines_cleared, 2);
+        assert_eq!(state.scoring.score, 1200);
         assert_eq!(state.notification_text(), Some("T-Spin Double"));
     }
 
@@ -1373,13 +1219,13 @@ mod tests {
             state.notification_text(),
             Some("Back-to-Back T-Spin Double")
         );
-        assert_eq!(state.score, 800 + 1800);
+        assert_eq!(state.scoring.score, 800 + 1800);
     }
 
     #[test]
     fn test_notification_expires() {
         let mut state = new_state();
-        state.award_action(4);
+        do_tetris(&mut state);
         state.tick(NOTIFICATION_TIME - Duration::from_millis(1));
         assert!(state.notification_text().is_some());
         state.tick(Duration::from_millis(1));
@@ -1392,16 +1238,16 @@ mod tests {
         fill_row_except(&mut state, 19, &[4]);
         fill_row_except(&mut state, 18, &[3, 4, 5]);
         fill(&mut state, &[(3, 17)]);
-        state.current_piece = Some(piece(TetriminoType::T, 3, 17, 2));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, 2));
         lock_and_clear(&mut state);
-        assert_eq!(state.score, 300);
+        assert_eq!(state.scoring.score, 300);
     }
 
     #[test]
     fn test_move_after_rotation_cancels_tspin() {
         let mut state = new_state();
         let p = piece(TetriminoType::T, 3, 10, 0);
-        state.current_piece = Some(p);
+        state.phase = Phase::Falling(p);
         state.rotate_piece(true);
         state.shift_piece(1);
         assert!(!state.last_move_was_rotation);
@@ -1471,140 +1317,110 @@ mod tests {
         assert_eq!(state.detect_tspin(&p), TSpin::Full);
     }
 
-    // --- Goals ---
-
-    #[test]
-    fn test_fixed_goal_levels_up_every_10_lines_and_carries_overflow() {
-        let mut state = new_state();
-        assert_eq!(state.lines_until_next_level, 10);
-        state.advance_goal(5);
-        assert_eq!((state.level, state.lines_until_next_level), (1, 5));
-        state.advance_goal(5);
-        assert_eq!((state.level, state.lines_until_next_level), (2, 10));
-        state.advance_goal(13);
-        assert_eq!((state.level, state.lines_until_next_level), (3, 7));
-    }
-
-    #[test]
-    fn test_fixed_goal_higher_start_includes_skipped_levels() {
-        // Guideline 6: starting on level 4 requires 40 lines, then 10 for level 5.
-        let mut state = GameState::new(GameConfig {
-            starting_level: 4,
-            ..config()
-        });
-        assert_eq!(state.lines_until_next_level, 40);
-        state.advance_goal(40);
-        assert_eq!((state.level, state.lines_until_next_level), (5, 10));
-    }
-
-    #[test]
-    fn test_variable_goal_is_5_times_level() {
-        let mut state = GameState::new(GameConfig {
-            enable_variable_goal: true,
-            ..config()
-        });
-        assert_eq!(state.lines_until_next_level, 5);
-        state.advance_goal(5);
-        assert_eq!((state.level, state.lines_until_next_level), (2, 10));
-        state.advance_goal(10);
-        assert_eq!((state.level, state.lines_until_next_level), (3, 15));
-    }
-
-    #[test]
-    fn test_variable_goal_awards_table_line_clears() {
-        // Guideline 6.1: score at level 1 / 100, with Back-to-Back adding half.
-        let cases = [
-            (TSpin::None, 1, 1),
-            (TSpin::Mini, 0, 1),
-            (TSpin::Mini, 1, 2),
-            (TSpin::None, 2, 3),
-            (TSpin::Full, 0, 4),
-            (TSpin::None, 3, 5),
-            (TSpin::None, 4, 8),
-            (TSpin::Full, 1, 8),
-            (TSpin::Full, 2, 12),
-            (TSpin::Full, 3, 16),
-        ];
-        for (tspin, lines, awarded) in cases {
-            let mut state = GameState::new(GameConfig {
-                enable_variable_goal: true,
-                starting_level: 15,
-                ..config()
-            });
-            let before = state.lines_until_next_level;
-            state.pending_tspin = tspin;
-            state.award_action(lines);
-            assert_eq!(
-                before - state.lines_until_next_level,
-                awarded,
-                "{tspin:?} {lines}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_variable_goal_back_to_back_adds_half() {
-        let mut state = GameState::new(GameConfig {
-            enable_variable_goal: true,
-            starting_level: 15,
-            ..config()
-        });
-        state.award_action(4);
-        let before = state.lines_until_next_level;
-        state.award_action(4);
-        assert_eq!(before - state.lines_until_next_level, 12);
-    }
-
-    #[test]
-    fn test_marathon_ends_after_level_15() {
-        let mut state = GameState::new(GameConfig {
-            starting_level: 15,
-            ..config()
-        });
-        state.lines_until_next_level = 2;
-        state.advance_goal(2);
-        assert!(state.game_over);
-        assert!(state.marathon_complete);
-        assert_eq!(state.level, 15);
-    }
-
-    #[test]
-    fn test_goal_progress_follows_the_current_goal() {
-        let mut state = GameState::new(GameConfig {
-            starting_level: 4,
-            ..config()
-        });
-        assert_eq!(state.goal_progress(), (0, 40));
-        state.advance_goal(15);
-        assert_eq!(state.goal_progress(), (15, 40));
-        state.advance_goal(28);
-        assert_eq!((state.level, state.goal_progress()), (5, (3, 10)));
-    }
-
-    #[test]
-    fn test_goal_progress_with_variable_goal() {
-        let mut state = GameState::new(GameConfig {
-            enable_variable_goal: true,
-            ..config()
-        });
-        state.advance_goal(7);
-        assert_eq!((state.level, state.goal_progress()), (2, (2, 10)));
-    }
-
     // --- Help ---
 
     #[test]
     fn test_help_stops_gravity_and_time() {
         let mut state = new_state();
-        state.current_piece = Some(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
         state.toggle_help();
         state.tick(Duration::from_secs(5));
-        assert_eq!(state.current_piece.unwrap().y, 0);
+        assert_eq!(state.current_piece().unwrap().y, 0);
         assert_eq!(state.elapsed, Duration::ZERO);
 
         state.toggle_help();
         state.tick(Duration::from_secs(1));
-        assert_eq!(state.current_piece.unwrap().y, 1);
+        assert_eq!(state.current_piece().unwrap().y, 1);
+    }
+
+    // --- Phases ---
+
+    #[test]
+    fn test_game_starts_in_generation_with_no_piece() {
+        let mut state = new_state();
+        assert!(state.current_piece().is_none());
+        state.tick(Duration::ZERO);
+        assert!(state.current_piece().is_some());
+    }
+
+    #[test]
+    fn test_input_does_nothing_outside_the_falling_phase() {
+        let mut state = new_state();
+        assert!(!state.shift_piece(1));
+        assert!(!state.rotate_piece(true));
+        assert!(!state.soft_drop_step());
+        state.hard_drop();
+        state.hold_piece();
+        state.lock_current_piece();
+        assert!(matches!(state.phase, Phase::Generation { .. }));
+        assert_eq!(state.scoring.score, 0);
+    }
+
+    #[test]
+    fn test_game_over_ignores_input_but_keeps_piece_on_screen() {
+        let mut state = new_state();
+        let p = piece(TetriminoType::T, 3, 5, 0);
+        state.phase = Phase::Falling(p);
+        state.quit();
+        assert_eq!(state.outcome(), Some(GameOutcome::Quit));
+        assert_eq!(state.current_piece(), Some(p));
+
+        assert!(!state.shift_piece(1));
+        state.hard_drop();
+        assert_eq!(state.current_piece(), Some(p));
+        assert_eq!(state.scoring.score, 0);
+    }
+
+    #[test]
+    fn test_quit_keeps_the_first_outcome() {
+        let mut state = new_state();
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::LockOut,
+            piece: None,
+        };
+        state.quit();
+        assert_eq!(state.outcome(), Some(GameOutcome::LockOut));
+    }
+
+    #[test]
+    fn test_outcomes_for_block_out_and_lock_out() {
+        let mut state = new_state();
+        state.next_pieces[0] = TetriminoType::T;
+        fill(&mut state, &[(4, -1)]);
+        state.spawn_piece();
+        assert_eq!(state.outcome(), Some(GameOutcome::BlockOut));
+        assert!(state.current_piece().is_some());
+
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, 0));
+        state.lock_current_piece();
+        assert_eq!(state.outcome(), Some(GameOutcome::LockOut));
+    }
+
+    #[test]
+    fn test_finishing_level_15_ends_the_game() {
+        let mut state = GameState::new(GameConfig {
+            starting_level: 15,
+            ..config()
+        });
+        state.scoring.lines_until_next_level = 4;
+        do_tetris(&mut state);
+        assert_eq!(state.outcome(), Some(GameOutcome::MarathonComplete));
+    }
+
+    #[test]
+    fn test_tspin_survives_the_line_clear_animation() {
+        let mut state = new_state();
+        fill_row_except(&mut state, 19, &[4]);
+        fill_row_except(&mut state, 18, &[3, 4, 5]);
+        fill(&mut state, &[(3, 17)]);
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, 1));
+        assert!(state.rotate_piece(true));
+        state.lock_current_piece();
+        assert_eq!(state.scoring.score, 0);
+
+        state.tick(Duration::from_secs(1));
+        assert_eq!(state.scoring.score, 1200);
     }
 
     // --- Line Clear flow ---
@@ -1613,24 +1429,20 @@ mod tests {
     fn test_line_clear_animation_then_clear_then_generation() {
         let mut state = new_state();
         fill_row_except(&mut state, 19, &[4, 5]);
-        state.current_piece = Some(piece(TetriminoType::O, 4, 18, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, 0));
         state.lock_current_piece();
 
-        assert!(state.pending_line_clear);
-        assert_eq!(
-            state.line_clear_animation.as_ref().unwrap().cleared_rows,
-            vec![19]
-        );
-        assert_eq!(state.lines_cleared, 0);
+        assert_eq!(state.line_clear_animation().unwrap().cleared_rows, vec![19]);
+        assert_eq!(state.scoring.lines_cleared, 0);
 
         state.tick(LINE_CLEAR_BASE + LINE_CLEAR_PER_LINE);
-        assert!(!state.pending_line_clear);
-        assert_eq!(state.lines_cleared, 1);
-        assert_eq!(state.score, 100);
-        assert!(state.current_piece.is_none());
+        assert!(state.line_clear_animation().is_none());
+        assert_eq!(state.scoring.lines_cleared, 1);
+        assert_eq!(state.scoring.score, 100);
+        assert!(state.current_piece().is_none());
 
         state.tick(GENERATION_DELAY);
-        assert!(state.current_piece.is_some());
+        assert!(state.current_piece().is_some());
     }
 
     #[test]
@@ -1639,6 +1451,7 @@ mod tests {
             cleared_rows: vec![],
             elapsed: Duration::ZERO,
             total_lines,
+            tspin: TSpin::None,
         };
         assert!(animation(4).duration() > animation(1).duration());
     }
@@ -1647,13 +1460,19 @@ mod tests {
     fn test_blink_alternates() {
         let mut state = new_state();
         assert!(!state.should_show_cleared_rows());
-        state.line_clear_animation = Some(LineClearAnimation {
+        state.phase = Phase::LineClear(LineClearAnimation {
             cleared_rows: vec![19],
             elapsed: Duration::ZERO,
             total_lines: 1,
+            tspin: TSpin::None,
         });
         assert!(state.should_show_cleared_rows());
-        state.line_clear_animation.as_mut().unwrap().elapsed = LINE_CLEAR_BLINK;
+        state.phase = Phase::LineClear(LineClearAnimation {
+            cleared_rows: vec![19],
+            elapsed: LINE_CLEAR_BLINK,
+            total_lines: 1,
+            tspin: TSpin::None,
+        });
         assert!(!state.should_show_cleared_rows());
     }
 
@@ -1661,7 +1480,7 @@ mod tests {
     fn test_complete_line_clear_without_pending_does_nothing() {
         let mut state = new_state();
         state.complete_line_clear();
-        assert!(state.generation_delay.is_none());
+        assert!(matches!(state.phase, Phase::Generation { .. }));
     }
 
     #[test]
@@ -1669,7 +1488,7 @@ mod tests {
         let mut state = new_state();
         state.tick(Duration::from_secs(3));
         assert_eq!(state.elapsed, Duration::from_secs(3));
-        state.game_over = true;
+        state.quit();
         state.tick(Duration::from_secs(3));
         assert_eq!(state.elapsed, Duration::from_secs(3));
     }
@@ -1685,7 +1504,7 @@ mod tests {
         });
         assert_eq!(state.board.get_width(), 15);
         assert_eq!(state.board.get_height(), 25);
-        assert_eq!(state.level, 5);
-        assert_eq!(state.lines_until_next_level, 75);
+        assert_eq!(state.scoring.level, 5);
+        assert_eq!(state.scoring.lines_until_next_level, 75);
     }
 }

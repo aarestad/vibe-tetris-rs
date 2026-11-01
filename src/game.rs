@@ -60,7 +60,6 @@ impl Game {
         self.key_release_events = terminal_guard.keyboard_enhanced;
 
         self.start_music();
-        self.state.spawn_piece();
 
         let mut last_tick = Instant::now();
 
@@ -78,7 +77,7 @@ impl Game {
             self.state.tick(dt);
             self.renderer.render(&self.state)?;
 
-            if self.state.game_over {
+            if self.state.is_game_over() {
                 self.audio.stop();
                 self.renderer.render_game_over(&self.state)?;
                 stdout().flush()?;
@@ -163,7 +162,7 @@ impl Game {
                 return Ok(true);
             }
             InputAction::ToggleHelp => self.state.toggle_help(),
-            InputAction::Quit => self.state.game_over = true,
+            InputAction::Quit => self.state.quit(),
         }
         Ok(false)
     }
@@ -200,7 +199,7 @@ impl Game {
                         return Ok(());
                     }
                     InputEvent::Pressed(InputAction::Quit) => {
-                        self.state.game_over = true;
+                        self.state.quit();
                         return Ok(());
                     }
                     _ => {}

@@ -87,6 +87,7 @@ Rotation.
 - Game loop: target 60 FPS with frame rate limiting
 - Input handling: use enums for different action types
 - State management: separate game state from rendering logic
+- Game phases: `Phase` holds the Tetrimino in play and the Line Clear, so add new states as variants instead of flags
 
 ### Testing Strategy
 - Unit tests for individual modules in their respective files using `#[cfg(test)]`
@@ -117,7 +118,8 @@ src/
 ├── lib.rs           # Module declarations
 ├── audio.rs         # Audio handling
 ├── game.rs          # Main game loop and input handling
-├── game_state.rs    # Game state management and logic
+├── game_state.rs    # Phases, movement, Lock Down, Hold and T-Spin recognition
+├── scoring.rs       # Score, Back-to-Back, level and Goal
 ├── board.rs         # Game board and collision detection
 ├── tetrimino.rs     # Tetrimino definitions and rotations
 ├── input.rs         # Keyboard input processing

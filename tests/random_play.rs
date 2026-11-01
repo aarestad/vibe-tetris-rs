@@ -20,7 +20,6 @@ impl Lcg {
 fn play(config: GameConfig, seed: u64) {
     let mut random = Lcg(seed);
     let mut state = GameState::new(config);
-    state.spawn_piece();
 
     for _ in 0..20_000 {
         match random.next(12) {
@@ -45,19 +44,19 @@ fn play(config: GameConfig, seed: u64) {
             _ => {}
         }
 
-        let score_before = state.score;
+        let score_before = state.scoring.score;
         state.tick(Duration::from_millis(random.next(40)));
-        assert!(state.score >= score_before);
+        assert!(state.scoring.score >= score_before);
 
-        if let Some(piece) = state.current_piece
-            && !state.game_over
+        if let Some(piece) = state.current_piece()
+            && !state.is_game_over()
         {
             assert!(state.board.is_valid_position(&piece), "{piece:?}");
         }
-        assert!((1..=15).contains(&state.level));
+        assert!((1..=15).contains(&state.scoring.level));
         assert_eq!(state.next_pieces.len(), state.config.preview_count);
 
-        if state.game_over {
+        if state.is_game_over() {
             return;
         }
     }
