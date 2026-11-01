@@ -1,24 +1,18 @@
-mod audio;
-mod board;
-mod config;
-mod game;
-mod game_state;
-mod input;
-mod tetrimino;
-mod ui;
-
-use crate::config::GameConfig;
-use crate::game::Game;
-use std::path::PathBuf;
-
 use anyhow::Result;
+use std::path::Path;
+use tetris_rs::config::GameConfig;
+use tetris_rs::game::Game;
 
 fn main() -> Result<()> {
-    let config_path = PathBuf::from("tetris_config.json");
-    let config = GameConfig::load_from_file(&config_path).unwrap_or_else(|_| GameConfig::default());
+    let config = GameConfig::load_or_default(Path::new("tetris_config.json"))?;
 
     let mut game = Game::new(config)?;
-    game.run()?;
+    let result = game.run();
 
-    Ok(())
+    // Printed here because the terminal is back to normal once `run` has returned.
+    for warning in game.take_warnings() {
+        eprintln!("Warning: {warning}");
+    }
+
+    result
 }

@@ -1,23 +1,33 @@
-use crate::audio::AudioPlayer;
+use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
 use crate::game_state::GameState;
-use crate::input::{InputAction, InputHandler};
+use crate::input::{AutoRepeat, InputAction, InputEvent, InputHandler};
 use crate::ui::Renderer;
 use anyhow::Result;
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+        supports_keyboard_enhancement,
+    },
 };
-use std::io::{stdout, Write};
-use std::path::PathBuf;
+use std::io::{Write, stdout};
 use std::time::{Duration, Instant};
+
+/// About 60 frames per second.
+const FRAME_DURATION: Duration = Duration::from_millis(16);
+/// Keys pressed this soon after Game Over do not dismiss the screen.
+const GAME_OVER_KEY_GUARD: Duration = Duration::from_millis(500);
 
 pub struct Game {
     state: GameState,
     renderer: Renderer,
     input: InputHandler,
     audio: AudioPlayer,
+    auto_repeat: AutoRepeat,
+    /// True when the terminal reports key releases, which continuous input needs.
+    key_release_events: bool,
 }
 
 impl Game {
@@ -28,6 +38,10 @@ impl Game {
         } else {
             AudioPlayer::no_sound()
         };
+        let auto_repeat = AutoRepeat::new(
+            Duration::from_millis(config.das_delay),
+            Duration::from_millis(config.das_repeat),
+        );
         let state = GameState::new(config);
         let input = InputHandler::new();
 
@@ -36,243 +50,207 @@ impl Game {
             renderer,
             input,
             audio,
+            auto_repeat,
+            key_release_events: false,
         })
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let _cleanup = setup_terminal();
+        let terminal_guard = TerminalGuard::new()?;
+        self.key_release_events = terminal_guard.keyboard_enhanced;
 
         self.start_music();
-
         self.state.spawn_piece();
 
-        let mut last_update = Instant::now();
-        let mut last_gravity = Instant::now();
-        let gravity_duration = self.get_gravity_duration();
-        let frame_duration = Duration::from_millis(16);
+        let mut last_tick = Instant::now();
 
         loop {
-            let now = Instant::now();
-            let frame_time = now.duration_since(last_update);
+            let frame_start = Instant::now();
+            let dt = frame_start.duration_since(last_tick);
+            last_tick = frame_start;
 
-            if let Some(action) = self.input.poll_input() {
-                self.handle_input(action)?;
+            if self.handle_pending_input()? {
+                // A pause took real time that must not count as play.
+                last_tick = Instant::now();
             }
 
-            if !self.state.show_help {
-                if self.state.pending_line_clear {
-                    if !self.state.is_line_clear_animation_active() {
-                        self.state.complete_line_clear();
-                    }
-                } else if now.duration_since(last_gravity) >= gravity_duration {
-                    if !self.state.move_piece(0, 1) {
-                        self.state.lock_current_piece();
-                    }
-                    last_gravity = now;
-                }
-            }
-
+            self.apply_auto_repeat(dt);
+            self.state.tick(dt);
             self.renderer.render(&self.state)?;
 
             if self.state.game_over {
-                self.renderer.render_game_over(&self.state)?;
-
                 self.audio.stop();
-
+                self.renderer.render_game_over(&self.state)?;
                 stdout().flush()?;
-
-                while !self.input.has_input() {
-                    std::thread::sleep(Duration::from_millis(16));
-                }
+                self.input.wait_for_key_press(GAME_OVER_KEY_GUARD)?;
                 break;
             }
 
-            if frame_time < frame_duration {
-                std::thread::sleep(frame_duration - frame_time);
-            }
-
-            last_update = now;
+            std::thread::sleep(FRAME_DURATION.saturating_sub(frame_start.elapsed()));
         }
 
         Ok(())
     }
 
-    fn start_music(&mut self) {
-        let mut audio_path = PathBuf::from(env!("OUT_DIR"));
-        audio_path.push("tetris_theme.wav");
+    /// Audio messages to show once the terminal is back to normal.
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        self.audio.take_warnings()
+    }
 
-        if audio_path.exists() {
-            self.audio.play_background_music(audio_path);
-            self.audio.set_volume(0.5);
+    fn start_music(&mut self) {
+        if THEME.is_empty() {
+            return;
+        }
+        self.audio.play_background_music(THEME);
+        self.audio.set_volume(0.5);
+    }
+
+    /// Handles all input waiting this frame. Returns true if the game was paused.
+    fn handle_pending_input(&mut self) -> Result<bool> {
+        let mut paused = false;
+        while let Some(input) = self.input.poll_input() {
+            paused |= self.handle_input(input)?;
+        }
+        Ok(paused)
+    }
+
+    fn apply_auto_repeat(&mut self, dt: Duration) {
+        let (direction, moves) = self.auto_repeat.update(dt);
+        if self.state.show_help {
+            return;
+        }
+        for _ in 0..moves {
+            self.state.shift_piece(direction);
         }
     }
 
-    fn get_gravity_duration(&self) -> Duration {
-        let base_gravity_ms = 800;
-        let level = self.state.level.max(1);
-        let gravity_ms = (base_gravity_ms / (2_u32.pow((level - 1).min(10)))).max(50);
-        Duration::from_millis(gravity_ms as u64)
+    fn handle_input(&mut self, input: InputEvent) -> Result<bool> {
+        match input {
+            InputEvent::Pressed(action) => self.handle_press(action),
+            InputEvent::Released(action) => {
+                self.handle_release(action);
+                Ok(false)
+            }
+        }
     }
 
-    fn handle_input(&mut self, action: InputAction) -> Result<()> {
+    fn handle_press(&mut self, action: InputAction) -> Result<bool> {
+        // Play is stopped behind the help overlay, so only these keys do anything.
+        if self.state.show_help && !matches!(action, InputAction::ToggleHelp | InputAction::Quit) {
+            return Ok(false);
+        }
+
         match action {
-            InputAction::MoveLeft => {
-                self.state.move_piece(-1, 0);
-            }
-            InputAction::MoveRight => {
-                self.state.move_piece(1, 0);
-            }
+            InputAction::MoveLeft => self.press_direction(-1),
+            InputAction::MoveRight => self.press_direction(1),
             InputAction::MoveDown => {
-                self.state.move_piece(0, 1);
+                if self.key_release_events {
+                    self.state.set_soft_drop(true);
+                } else {
+                    self.state.soft_drop_step();
+                }
             }
-            InputAction::HardDrop => {
-                self.state.hard_drop();
-            }
+            InputAction::HardDrop => self.state.hard_drop(),
             InputAction::RotateClockwise => {
                 self.state.rotate_piece(true);
             }
             InputAction::RotateCounterClockwise => {
                 self.state.rotate_piece(false);
             }
-            InputAction::Hold => {
-                self.state.hold_piece();
-            }
+            InputAction::Hold => self.state.hold_piece(),
             InputAction::Pause => {
                 self.handle_pause()?;
+                return Ok(true);
             }
-            InputAction::ToggleHelp => {
-                self.state.toggle_help();
-            }
-            InputAction::Quit => {
-                self.state.game_over = true;
-
-                self.audio.stop();
-            }
+            InputAction::ToggleHelp => self.state.toggle_help(),
+            InputAction::Quit => self.state.game_over = true,
         }
-
-        Ok(())
+        Ok(false)
     }
 
+    fn press_direction(&mut self, direction: i32) {
+        self.state.shift_piece(direction);
+        if self.key_release_events {
+            self.auto_repeat.press(direction);
+        }
+    }
+
+    fn handle_release(&mut self, action: InputAction) {
+        match action {
+            InputAction::MoveLeft => self.auto_repeat.release(-1),
+            InputAction::MoveRight => self.auto_repeat.release(1),
+            InputAction::MoveDown => self.state.set_soft_drop(false),
+            _ => {}
+        }
+    }
+
+    /// Stops play and hides the Matrix and queues until Pause is pressed again.
     fn handle_pause(&mut self) -> Result<()> {
         self.audio.pause();
 
-        self.renderer.render_pause(&self.state)?;
-
         loop {
-            if let Some(action) = self.input.poll_input() {
-                match action {
-                    InputAction::Pause => {
-                        self.audio.resume();
+            // Drawn every time through so that a resize during the pause is handled.
+            self.renderer.render_pause(&self.state)?;
 
-                        break;
+            while let Some(input) = self.input.poll_input() {
+                match input {
+                    InputEvent::Pressed(InputAction::Pause) => {
+                        self.audio.resume();
+                        self.release_all_held_keys();
+                        return Ok(());
                     }
-                    InputAction::Quit => {
-                        self.audio.stop();
+                    InputEvent::Pressed(InputAction::Quit) => {
                         self.state.game_over = true;
-                        break;
+                        return Ok(());
                     }
                     _ => {}
                 }
             }
-            std::thread::sleep(Duration::from_millis(16));
+            std::thread::sleep(FRAME_DURATION);
         }
+    }
 
-        Ok(())
+    fn release_all_held_keys(&mut self) {
+        self.auto_repeat.clear();
+        self.state.set_soft_drop(false);
     }
 }
 
-struct TerminalCleanup;
+/// Restores the terminal when dropped, including during a panic.
+struct TerminalGuard {
+    keyboard_enhanced: bool,
+}
 
-impl Drop for TerminalCleanup {
+impl TerminalGuard {
+    fn new() -> Result<Self> {
+        enable_raw_mode()?;
+        // Created now so that any failure below still leaves raw mode.
+        let mut guard = Self {
+            keyboard_enhanced: false,
+        };
+        execute!(stdout(), EnterAlternateScreen)?;
+
+        if supports_keyboard_enhancement().unwrap_or(false) {
+            execute!(
+                stdout(),
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                )
+            )?;
+            guard.keyboard_enhanced = true;
+        }
+        Ok(guard)
+    }
+}
+
+impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        if self.keyboard_enhanced {
+            let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
+        }
         let _ = disable_raw_mode();
-        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture);
+        let _ = execute!(stdout(), LeaveAlternateScreen);
         let _ = stdout().flush();
-    }
-}
-
-fn setup_terminal() -> TerminalCleanup {
-    enable_raw_mode().expect("Failed to enable raw mode");
-    execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)
-        .expect("Failed to enter alternate screen");
-
-    TerminalCleanup
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::input::InputAction;
-
-    fn get_gravity_for_level(level: u32) -> Duration {
-        let base_gravity_ms = 800;
-        let level = level.max(1);
-        let gravity_ms = (base_gravity_ms / (2_u32.pow((level - 1).min(10)))).max(50);
-        Duration::from_millis(gravity_ms as u64)
-    }
-
-    #[test]
-    fn test_get_gravity_duration_level_1() {
-        let gravity = get_gravity_for_level(1);
-        assert_eq!(gravity.as_millis(), 800);
-    }
-
-    #[test]
-    fn test_get_gravity_duration_level_2() {
-        let gravity = get_gravity_for_level(2);
-        assert_eq!(gravity.as_millis(), 400);
-    }
-
-    #[test]
-    fn test_get_gravity_duration_level_3() {
-        let gravity = get_gravity_for_level(3);
-        assert_eq!(gravity.as_millis(), 200);
-    }
-
-    #[test]
-    fn test_get_gravity_duration_level_10() {
-        let gravity = get_gravity_for_level(10);
-        assert_eq!(gravity.as_millis(), 50);
-    }
-
-    #[test]
-    fn test_get_gravity_duration_level_15_capped() {
-        let gravity = get_gravity_for_level(15);
-        assert_eq!(gravity.as_millis(), 50);
-    }
-
-    #[test]
-    fn test_get_gravity_duration_very_high_level() {
-        let gravity = get_gravity_for_level(100);
-        assert_eq!(gravity.as_millis(), 50);
-    }
-
-    #[test]
-    fn test_get_gravity_duration_level_0_adjusted_to_1() {
-        let gravity = get_gravity_for_level(0);
-        assert_eq!(gravity.as_millis(), 800);
-    }
-
-    #[test]
-    fn test_handle_input_action_types() {
-        let actions = [
-            InputAction::MoveLeft,
-            InputAction::MoveRight,
-            InputAction::MoveDown,
-            InputAction::HardDrop,
-            InputAction::RotateClockwise,
-            InputAction::RotateCounterClockwise,
-            InputAction::Hold,
-            InputAction::Pause,
-            InputAction::Quit,
-        ];
-
-        assert_eq!(actions.len(), 9);
-    }
-
-    #[test]
-    fn test_terminal_cleanup_drop() {
-        let cleanup = TerminalCleanup;
-        drop(cleanup);
     }
 }

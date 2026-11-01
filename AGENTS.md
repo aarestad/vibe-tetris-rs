@@ -4,7 +4,7 @@ This file contains guidelines and commands for agentic coding agents working on 
 
 ## Project Overview
 
-This is a terminal-based Tetris game written in Rust (edition 2024) using the crossterm crate for cross-platform terminal UI. The game follows standard Tetris mechanics with support for configuration files, different tetrimino types, and full game loop implementation.
+This is a terminal-based Tetris game written in Rust (edition 2024) using ratatui and crossterm for cross-platform terminal UI, and rodio for audio. The game follows standard Tetris mechanics with support for configuration files, different tetrimino types, and full game loop implementation.
 
 The design of the game aims to implement as much as possible of the official
 [Tetris Design Guidelines](./2009%20Tetris%20Design%20Guideline.pdf), including T-Spins, Variable Goal System, and Super
@@ -22,7 +22,7 @@ Rotation.
 - `cargo doc --open` - Generate and view documentation
 
 ### Testing Commands
-- `cargo test` - Run all tests (none currently exist)
+- `cargo test` - Run all tests
 - `cargo test <test_name>` - Run a specific test
 - `cargo test -- --nocapture` - Run tests with stdout output
 
@@ -35,7 +35,7 @@ Rotation.
 ## Code Style Guidelines
 
 ### Module Structure and Imports
-- Keep module declarations at the top of `main.rs` in alphabetical order
+- Keep module declarations in `lib.rs` in alphabetical order; `main.rs` uses the library
 - Use `use crate::` for internal modules, external crates go after
 - Group imports by type: std library, external crates, internal modules
 - Prefer explicit imports over glob imports (`use std::io::{Write, stdout}` vs `use std::io::*`)
@@ -82,17 +82,17 @@ Rotation.
 - Use `Duration` from `std::time` for time-based calculations
 
 ### Game-Specific Patterns
-- Board coordinates: use `(x, y)` with `x` horizontal, `y` vertical
+- Board coordinates: use `(x, y)` with `x` horizontal, `y` vertical; row 0 is the top Matrix row and negative rows are the Buffer Zone
 - Tetrimino positions: store as `i32` to allow negative values during validation
 - Game loop: target 60 FPS with frame rate limiting
 - Input handling: use enums for different action types
 - State management: separate game state from rendering logic
 
-### Testing Strategy (Future)
+### Testing Strategy
 - Unit tests for individual modules in their respective files using `#[cfg(test)]`
 - Integration tests for game flow in `tests/` directory
-- Property-based testing for tetrimino rotation and collision logic
-- Benchmarks for performance-critical game loop code
+- Render tests with ratatui's `TestBackend`, in `ui.rs`
+- Time passes only through `GameState::tick`, so timing rules can be tested without waiting
 
 ### Documentation Requirements
 - All public APIs must have doc comments
@@ -109,9 +109,12 @@ Rotation.
 ## File Structure
 
 ```
-build.rs             # Build script to transform MIDI to WAV; requires fluidsynth
+build.rs             # Build script to transform MIDI to WAV; requires timidity for music
+tests/
+└── random_play.rs   # Random input games that check the rules always hold
 src/
 ├── main.rs          # Entry point and application setup
+├── lib.rs           # Module declarations
 ├── audio.rs         # Audio handling
 ├── game.rs          # Main game loop and input handling
 ├── game_state.rs    # Game state management and logic
@@ -125,7 +128,8 @@ src/
 ## Common Gotchas
 
 - Terminal mode: Always use RAII pattern for terminal cleanup
-- Coordinate system: Y increases downward, be consistent with board bounds
+- Coordinate system: Y increases downward, so y-up rotation tables need their sign reversed
+- Key releases: only terminals with keyboard enhancement report them; other terminals get one Soft Drop row or one move per key event, with OS key repeat
 - Input handling: Poll in main loop, don't block for extended periods
 - Frame timing: Use `Instant::now()` and `Duration` for accurate timing
 - Error handling: Terminal operations can fail, handle gracefully with `Result`
@@ -134,8 +138,8 @@ src/
 
 - Game config uses JSON format with `serde` for serialization
 - Default values are provided through `Default` trait
-- Config files are optional; missing files fall back to defaults
-- Configuration should be validated on load
+- Config files are optional; missing files fall back to defaults, and missing fields take their defaults
+- Configuration is validated on load, and an invalid file is an error
 
 ## Development Notes
 

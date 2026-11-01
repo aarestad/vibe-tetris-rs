@@ -1,16 +1,23 @@
 use crate::game_state::GameState;
-use crate::tetrimino::TetriminoType;
+use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
-use ratatui::layout::Alignment;
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
-    Frame, Terminal,
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::io::Stdout;
+
+const SIDE_PANEL_WIDTH: u16 = 14;
+const HOLD_PANEL_HEIGHT: u16 = 6;
+/// Rows above the Skyline shown so the player can see play there (Guideline 10).
+const BUFFER_ROWS_SHOWN: i32 = 2;
+const CELL_WIDTH: usize = 2;
+const LABEL_COLOR: Color = Color::Cyan;
+const PROGRESS_BAR_WIDTH: usize = 12;
 
 pub struct Renderer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -23,213 +30,222 @@ impl Renderer {
         Ok(Self { terminal })
     }
 
-    #[cfg(test)]
-    pub fn new_for_testing() -> Self
-    where
-        Self: Sized,
-    {
-        Self {
-            terminal: unsafe { std::mem::zeroed() },
-        }
-    }
-
     pub fn render(&mut self, state: &GameState) -> Result<()> {
         self.terminal.draw(|f| {
-            Self::draw_game(f, state);
+            Self::draw_game(f, state, false);
             if state.show_help {
-                Self::draw_help_overlay(f);
+                Self::draw_help_overlay(f, state);
             }
         })?;
         Ok(())
     }
 
-    fn draw_game(f: &mut Frame, state: &GameState) {
+    /// Size of the playing field, side panels included.
+    fn required_size(state: &GameState) -> (u16, u16) {
+        let board_width = state.board.get_width() as u16 * CELL_WIDTH as u16 + 2;
+        let board_height = state.board.get_height() as u16 + BUFFER_ROWS_SHOWN as u16 + 2;
+        (SIDE_PANEL_WIDTH * 2 + board_width, board_height)
+    }
+
+    /// The centered playing field, or None if the terminal is too small to fit it.
+    fn play_area(area: Rect, state: &GameState) -> Option<Rect> {
+        let (width, height) = Self::required_size(state);
+        if area.width < width || area.height < height {
+            return None;
+        }
+        Some(Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + (area.height - height) / 2,
+            width,
+            height,
+        })
+    }
+
+    fn draw_game(f: &mut Frame, state: &GameState, hide_play: bool) {
+        let Some(area) = Self::play_area(f.area(), state) else {
+            Self::draw_too_small(f, state);
+            return;
+        };
+
+        let (width, _) = Self::required_size(state);
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Length(14),
-                Constraint::Min(state.board.get_width() as u16 * 2 + 2),
-                Constraint::Length(14),
+                Constraint::Length(SIDE_PANEL_WIDTH),
+                Constraint::Length(width - SIDE_PANEL_WIDTH * 2),
+                Constraint::Length(SIDE_PANEL_WIDTH),
             ])
-            .split(f.area());
-
-        let left_chunk = chunks[0];
-        let board_chunk = chunks[1];
-        let right_chunk = chunks[2];
+            .split(area);
 
         let left_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(10), Constraint::Min(0)])
-            .split(left_chunk);
+            .constraints([Constraint::Length(HOLD_PANEL_HEIGHT), Constraint::Min(0)])
+            .split(chunks[0]);
 
-        let hold_chunk = left_chunks[0];
-        let info_chunk = left_chunks[1];
+        Self::draw_held_piece(f, left_chunks[0], state, hide_play);
+        Self::draw_info(f, left_chunks[1], state);
+        Self::draw_board(f, chunks[1], state, hide_play);
+        Self::draw_next_pieces(f, chunks[2], state, hide_play);
+    }
 
-        Self::draw_held_piece(f, hold_chunk, state);
-        Self::draw_info(f, info_chunk, state);
-        Self::draw_board(f, board_chunk, state);
-        Self::draw_next_pieces(f, right_chunk, state);
+    fn draw_too_small(f: &mut Frame, state: &GameState) {
+        let (width, height) = Self::required_size(state);
+        let message = Paragraph::new(vec![
+            Line::from("Terminal too small"),
+            Line::from(format!("Need {width} x {height}")),
+        ])
+        .wrap(Wrap { trim: true });
+        f.render_widget(message, f.area());
+    }
+
+    fn label(text: &str) -> Line<'static> {
+        Line::from(Span::styled(
+            text.to_string(),
+            Style::default()
+                .fg(LABEL_COLOR)
+                .add_modifier(Modifier::BOLD),
+        ))
+    }
+
+    fn value(text: String) -> Line<'static> {
+        Line::from(Span::styled(text, Style::default().fg(Color::White)))
     }
 
     fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
-        let lines_cleared_in_level = state.lines_cleared % state.config.lines_per_level;
-        let progress = lines_cleared_in_level as f64 / state.config.lines_per_level as f64;
-        let progress_bar = Self::create_progress_bar(progress);
-
-        let lines = vec![
-            Line::from(vec![Span::styled(
-                "SCORE",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                format!("{}", state.score),
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "LEVEL",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                format!("{}", state.level),
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "LINES",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                format!("{}", state.lines_cleared),
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(""),
-            Line::from(vec![Span::styled(
-                "PROGRESS",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                format!(
-                    "{}/{}",
-                    lines_cleared_in_level, state.config.lines_per_level
-                ),
-                Style::default().fg(Color::White),
-            )]),
-            Line::from(vec![Span::styled(
-                progress_bar,
+        let seconds = state.elapsed.as_secs();
+        let (done, total) = state.goal_progress();
+        let mut lines = vec![
+            Self::label("SCORE"),
+            Self::value(state.score.to_string()),
+            Self::label("LEVEL"),
+            Self::value(state.level.to_string()),
+            Self::label("LINES"),
+            Self::value(state.lines_cleared.to_string()),
+            Self::label("PROGRESS"),
+            Self::value(format!("{done}/{total}")),
+            Line::styled(
+                Self::progress_bar(done, total),
                 Style::default().fg(Color::Green),
-            )]),
-            Line::from(""),
-            Line::from(""),
-            Line::from(vec![Span::styled(
+            ),
+            Self::label("TIME"),
+            Self::value(format!("{:02}:{:02}", seconds / 60, seconds % 60)),
+            Line::styled(
                 "[H] Help",
                 Style::default()
                     .fg(Color::Gray)
                     .add_modifier(Modifier::BOLD),
-            )]),
+            ),
         ];
 
-        let paragraph = Paragraph::new(lines).block(
-            Block::default()
-                .title(" INFO ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
+        // Always outside the Matrix, which the Guideline requires after level 10.
+        if let Some(text) = state.notification_text() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                text.to_string(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        }
 
+        let paragraph = Paragraph::new(lines)
+            .wrap(Wrap { trim: true })
+            .block(Self::panel());
         f.render_widget(paragraph, area);
     }
 
-    fn draw_board(f: &mut Frame, area: Rect, state: &GameState) {
+    fn progress_bar(done: u32, total: u32) -> String {
+        let width = PROGRESS_BAR_WIDTH;
+        let filled = (done as usize * width / total.max(1) as usize).min(width);
+        "█".repeat(filled) + &"░".repeat(width - filled)
+    }
+
+    fn panel() -> Block<'static> {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(LABEL_COLOR))
+    }
+
+    fn line_clear_style(total_lines: u32) -> Style {
+        let color = match total_lines {
+            1 => Color::White,
+            2 => Color::Cyan,
+            3 => Color::Yellow,
+            _ => Color::Magenta,
+        };
+        Style::default().fg(color).add_modifier(Modifier::BOLD)
+    }
+
+    fn draw_board(f: &mut Frame, area: Rect, state: &GameState, hide_play: bool) {
         let board_width = state.board.get_width();
-        let board_height = state.board.get_height();
+        let board_height = state.board.get_height() as i32;
+        let wall_style = Style::default().fg(Color::White);
 
         let ghost_y = state
             .config
             .enable_ghost_piece
-            .then(|| Self::calculate_ghost_y(state));
+            .then(|| Self::calculate_ghost_y(state))
+            .flatten();
 
-        let show_cleared_animation = state.should_show_cleared_rows();
-        let cleared_rows: Vec<usize> = state
-            .line_clear_animation
-            .as_ref()
-            .map(|anim| anim.cleared_rows.clone())
-            .unwrap_or_default();
-
-        let mut board_lines = Vec::with_capacity(board_height);
-
-        for y in 0..board_height {
-            let mut line_spans = Vec::with_capacity(board_width * 2 + 2);
-
-            line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
-
-            let is_cleared_row = show_cleared_animation && cleared_rows.contains(&y);
-
+        let row_line = |y: i32, wall: &'static str| {
+            let mut spans = Vec::with_capacity(board_width + 2);
+            spans.push(Span::styled(wall, wall_style));
             for x in 0..board_width {
-                let (cell_content, is_ghost) = Self::get_combined_cell(state, ghost_y, x, y);
-                let color = Self::get_piece_color(cell_content);
-
-                let block_str = "██";
-                let style = if is_cleared_row {
-                    Style::default()
-                        .fg(Color::White)
-                        .add_modifier(Modifier::REVERSED)
-                } else if is_ghost {
-                    Style::default().fg(color).add_modifier(Modifier::DIM)
+                spans.push(if hide_play {
+                    Span::raw("  ")
                 } else {
-                    Style::default().fg(color)
-                };
-                line_spans.push(Span::styled(block_str, style));
+                    Self::cell_span(state, ghost_y, x, y)
+                });
             }
+            spans.push(Span::styled(wall, wall_style));
+            Line::from(spans)
+        };
 
-            line_spans.push(Span::styled("│", Style::default().fg(Color::White)));
-            board_lines.push(Line::from(line_spans));
+        let mut lines = Vec::new();
+        for y in -BUFFER_ROWS_SHOWN..0 {
+            lines.push(row_line(y, " "));
         }
+        let border_fill = "─".repeat(board_width * CELL_WIDTH);
+        lines.push(Line::styled(format!("┌{border_fill}┐"), wall_style));
+        for y in 0..board_height {
+            lines.push(row_line(y, "│"));
+        }
+        lines.push(Line::styled(format!("└{border_fill}┘"), wall_style));
 
-        let top_border = "┌".to_string() + &"─".repeat(board_width * 2) + "┐";
-        let bottom_border = "└".to_string() + &"─".repeat(board_width * 2) + "┘";
-
-        let mut full_lines = vec![Line::from(vec![Span::styled(
-            top_border,
-            Style::default().fg(Color::White),
-        )])];
-        full_lines.extend(board_lines);
-        full_lines.push(Line::from(vec![Span::styled(
-            bottom_border,
-            Style::default().fg(Color::White),
-        )]));
-
-        let paragraph = Paragraph::new(full_lines).alignment(Alignment::Center);
-
-        f.render_widget(paragraph, area);
+        f.render_widget(Paragraph::new(lines), area);
     }
 
-    fn calculate_ghost_y(state: &GameState) -> i32 {
-        if let Some(ref piece) = state.current_piece {
-            let mut ghost_y = piece.y;
-            loop {
-                let test_piece = crate::tetrimino::Tetrimino {
-                    x: piece.x,
-                    y: ghost_y + 1,
-                    kind: piece.kind,
-                    rotation: piece.rotation,
-                };
+    fn cell_span(state: &GameState, ghost_y: Option<i32>, x: usize, y: i32) -> Span<'static> {
+        if let Some(animation) = &state.line_clear_animation
+            && state.should_show_cleared_rows()
+            && animation.cleared_rows.contains(&y)
+        {
+            return Span::styled("██", Self::line_clear_style(animation.total_lines));
+        }
 
-                if !state.board.is_valid_position(&test_piece) {
-                    break;
-                }
-                ghost_y += 1;
+        let (kind, is_ghost) = Self::get_combined_cell(state, ghost_y, x, y);
+        match kind {
+            None => Span::raw("  "),
+            Some(kind) if is_ghost => {
+                Span::styled("░░", Style::default().fg(Self::get_piece_color(kind)))
             }
-            ghost_y
-        } else {
-            0
+            Some(kind) => Span::styled("██", Style::default().fg(Self::get_piece_color(kind))),
+        }
+    }
+
+    /// Row where the Tetrimino in play would land, if there is one in play.
+    fn calculate_ghost_y(state: &GameState) -> Option<i32> {
+        let piece = state.current_piece?;
+        let mut ghost = piece;
+        loop {
+            let below = Tetrimino {
+                y: ghost.y + 1,
+                ..ghost
+            };
+            if !state.board.is_valid_position(&below) {
+                return Some(ghost.y);
+            }
+            ghost = below;
         }
     }
 
@@ -237,286 +253,430 @@ impl Renderer {
         state: &GameState,
         ghost_y: Option<i32>,
         x: usize,
-        y: usize,
+        y: i32,
     ) -> (Option<TetriminoType>, bool) {
-        let xi = x as i32;
-        let yi = y as i32;
-
-        if let Some(ref piece) = state.current_piece {
-            for (dx, dy) in piece.get_blocks() {
-                let piece_x = piece.x + dx;
-                let piece_y = piece.y + dy;
-
-                if piece_x == xi && piece_y == yi {
-                    return (Some(piece.kind), false);
-                }
+        if let Some(piece) = state.current_piece {
+            let xi = x as i32;
+            let blocks = piece.get_blocks();
+            if blocks
+                .iter()
+                .any(|(dx, dy)| piece.x + dx == xi && piece.y + dy == y)
+            {
+                return (Some(piece.kind), false);
             }
-
-            if let Some(ghost_pos) = ghost_y {
-                for (dx, dy) in piece.get_blocks() {
-                    let ghost_piece_x = piece.x + dx;
-                    let ghost_piece_y = ghost_pos + dy;
-
-                    if ghost_piece_x == xi && ghost_piece_y == yi {
-                        return (Some(piece.kind), true);
-                    }
-                }
+            if let Some(ghost_y) = ghost_y
+                && blocks
+                    .iter()
+                    .any(|(dx, dy)| piece.x + dx == xi && ghost_y + dy == y)
+            {
+                return (Some(piece.kind), true);
             }
         }
-
         (state.board.get_cell(x, y), false)
     }
 
-    fn get_piece_color(piece_type: Option<TetriminoType>) -> Color {
-        match piece_type {
-            Some(TetriminoType::I) => Color::Cyan,
-            Some(TetriminoType::O) => Color::Yellow,
-            Some(TetriminoType::T) => Color::Magenta,
-            Some(TetriminoType::S) => Color::Green,
-            Some(TetriminoType::Z) => Color::Red,
-            Some(TetriminoType::J) => Color::Blue,
-            Some(TetriminoType::L) => Color::Rgb(255, 140, 0),
-            None => Color::Reset,
+    fn get_piece_color(kind: TetriminoType) -> Color {
+        match kind {
+            TetriminoType::I => Color::Cyan,
+            TetriminoType::O => Color::Yellow,
+            TetriminoType::T => Color::Magenta,
+            TetriminoType::S => Color::Green,
+            TetriminoType::Z => Color::Red,
+            TetriminoType::J => Color::Blue,
+            TetriminoType::L => Color::Rgb(255, 140, 0),
         }
     }
 
-    fn draw_next_pieces(f: &mut Frame, area: Rect, state: &GameState) {
-        let preview_count = state.config.preview_count.clamp(1, 6);
-        let display_count = preview_count.min(state.next_pieces.len());
+    fn draw_next_pieces(f: &mut Frame, area: Rect, state: &GameState, hide_play: bool) {
+        let mut lines = vec![Self::label("NEXT")];
 
-        let mut lines = vec![
-            Line::from(Span::styled(
-                "NEXT",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-        ];
-
-        for (i, &piece_type) in state.next_pieces.iter().enumerate().take(display_count) {
-            if i > 0 {
+        if !hide_play {
+            for &kind in state.next_pieces.iter().take(state.config.preview_count) {
                 lines.push(Line::from(""));
-            }
-            let piece_lines = Self::get_piece_display(piece_type);
-            lines.extend(piece_lines);
-        }
-
-        let paragraph = Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-
-        f.render_widget(paragraph, area);
-    }
-
-    fn draw_held_piece(f: &mut Frame, area: Rect, state: &GameState) {
-        let mut lines = vec![
-            Line::from(Span::styled(
-                "HOLD",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-        ];
-
-        if let Some(piece_type) = state.held_piece {
-            let piece_lines = Self::get_piece_display(piece_type);
-            lines.extend(piece_lines);
-        } else {
-            lines.push(Line::from(""));
-            lines.push(Line::from(""));
-            lines.push(Line::from(""));
-            lines.push(Line::from(""));
-        }
-
-        let paragraph = Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-
-        f.render_widget(paragraph, area);
-    }
-
-    fn get_piece_display(piece_type: TetriminoType) -> Vec<Line<'static>> {
-        let piece = crate::tetrimino::Tetrimino::new(piece_type);
-        let blocks = piece.get_blocks();
-        let color = Self::get_piece_color(Some(piece_type));
-
-        let mut display = vec!["        ".to_string(); 4];
-
-        for (dx, dy) in blocks {
-            let x = (dx + 1) as usize;
-            let y = (dy + 1) as usize;
-            if y < 4 {
-                let row = display.get_mut(y).unwrap();
-                let mut chars: Vec<char> = row.chars().collect();
-                if x * 2 < chars.len() {
-                    chars[x * 2] = '█';
-                    chars[x * 2 + 1] = '█';
-                    *row = chars.into_iter().collect();
-                }
+                lines.extend(Self::get_piece_display(kind));
             }
         }
 
-        display
-            .into_iter()
-            .map(|s| Line::from(vec![Span::styled(s, Style::default().fg(color))]))
+        f.render_widget(Paragraph::new(lines).block(Self::panel()), area);
+    }
+
+    fn draw_held_piece(f: &mut Frame, area: Rect, state: &GameState, hide_play: bool) {
+        let mut lines = vec![Self::label("HOLD"), Line::from("")];
+
+        if !hide_play && let Some(kind) = state.held_piece {
+            lines.extend(Self::get_piece_display(kind));
+        }
+
+        f.render_widget(Paragraph::new(lines).block(Self::panel()), area);
+    }
+
+    /// A Tetrimino as it appears in the queues: North Facing, in two rows.
+    fn get_piece_display(kind: TetriminoType) -> Vec<Line<'static>> {
+        let blocks = Tetrimino::new(kind).get_blocks();
+        let min_x = blocks.iter().map(|(x, _)| *x).min().unwrap_or(0);
+        let min_y = blocks.iter().map(|(_, y)| *y).min().unwrap_or(0);
+        let style = Style::default().fg(Self::get_piece_color(kind));
+
+        (0..2)
+            .map(|row| {
+                let spans: Vec<Span> = (0..4)
+                    .map(|col| {
+                        let filled = blocks
+                            .iter()
+                            .any(|(x, y)| x - min_x == col && y - min_y == row);
+                        if filled {
+                            Span::styled("██", style)
+                        } else {
+                            Span::raw("  ")
+                        }
+                    })
+                    .collect();
+                Line::from(spans)
+            })
             .collect()
     }
 
-    fn create_progress_bar(progress: f64) -> String {
-        const BAR_WIDTH: usize = 12;
-        let filled = ((progress * BAR_WIDTH as f64).min(BAR_WIDTH as f64)) as usize;
-        let empty = BAR_WIDTH - filled;
-        "█".repeat(filled) + &"░".repeat(empty)
-    }
-
-    fn draw_help_overlay(f: &mut Frame) {
-        let help_block = Block::default()
-            .title(" CONTROLS ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .style(Style::default().bg(Color::DarkGray).fg(Color::White));
-
-        let help_area = Rect {
-            x: (f.area().width.saturating_sub(36)) / 2,
-            y: (f.area().height.saturating_sub(18)) / 2,
-            width: 36.min(f.area().width),
-            height: 18.min(f.area().height),
+    fn draw_help_overlay(f: &mut Frame, state: &GameState) {
+        let key_line = |action: &'static str, keys: &'static str| {
+            Line::from(vec![
+                Span::styled(action, Style::default().fg(Color::Yellow)),
+                Span::styled(keys, Style::default().fg(Color::White)),
+            ])
         };
-
-        f.render_widget(Clear, help_area);
-        f.render_widget(help_block, help_area);
-
-        let inner_area = Rect {
-            x: help_area.x + 1,
-            y: help_area.y + 1,
-            width: help_area.width.saturating_sub(2),
-            height: help_area.height.saturating_sub(2),
-        };
-
         let lines = vec![
-            Line::from(vec![
-                Span::styled("Move:  ", Style::default().fg(Color::Yellow)),
-                Span::styled("← →", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Drop:   ", Style::default().fg(Color::Yellow)),
-                Span::styled("↓", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Hard:   ", Style::default().fg(Color::Yellow)),
-                Span::styled("SPACE", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Rotate: ", Style::default().fg(Color::Yellow)),
-                Span::styled("X / Z", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Hold:   ", Style::default().fg(Color::Yellow)),
-                Span::styled("C", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Pause:  ", Style::default().fg(Color::Yellow)),
-                Span::styled("P / ESC", Style::default().fg(Color::White)),
-            ]),
+            key_line("Move:   ", "← →"),
+            key_line("Drop:   ", "↓"),
+            key_line("Hard:   ", "SPACE"),
+            key_line("Rotate: ", "↑ / X, Z"),
+            key_line("Hold:   ", "C"),
+            key_line("Pause:  ", "P / ESC / F1"),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("Help:   ", Style::default().fg(Color::Yellow)),
-                Span::styled("H", Style::default().fg(Color::White)),
-            ]),
-            Line::from(vec![
-                Span::styled("Quit:   ", Style::default().fg(Color::Yellow)),
-                Span::styled("Q", Style::default().fg(Color::White)),
-            ]),
+            key_line("Help:   ", "H"),
+            key_line("Quit:   ", "Q"),
             Line::from(""),
             Line::from("Press H to close").alignment(Alignment::Center),
         ];
-
-        let help_text = Paragraph::new(lines).alignment(Alignment::Left);
-        f.render_widget(help_text, inner_area);
+        Self::draw_box(f, state, " CONTROLS ", lines, Alignment::Left);
     }
 
+    /// Draws the paused screen: play is hidden and "PAUSED" is shown (Guideline 13.1.6).
     pub fn render_pause(&mut self, state: &GameState) -> Result<()> {
-        self.terminal.draw(|f| {
-            Self::draw_game(f, state);
-
-            let pause_block = Block::default()
-                .title(" PAUSED ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
-                .style(Style::default().bg(Color::DarkGray).fg(Color::White));
-
-            let pause_area = Rect {
-                x: (f.area().width.saturating_sub(30)) / 2,
-                y: (f.area().height.saturating_sub(6)) / 2,
-                width: 30.min(f.area().width),
-                height: 6.min(f.area().height),
-            };
-
-            f.render_widget(Clear, pause_area);
-            f.render_widget(pause_block, pause_area);
-
-            let inner_area = Rect {
-                x: pause_area.x + 1,
-                y: pause_area.y + 1,
-                width: pause_area.width.saturating_sub(2),
-                height: pause_area.height.saturating_sub(2),
-            };
-
-            let pause_text = Paragraph::new(vec![
-                Line::from("Press PAUSE again to resume").alignment(Alignment::Center),
-                Line::from("Press QUIT to exit game").alignment(Alignment::Center),
-            ])
-            .alignment(Alignment::Center);
-
-            f.render_widget(pause_text, inner_area);
-        })?;
+        self.terminal.draw(|f| Self::draw_pause_screen(f, state))?;
         Ok(())
+    }
+
+    fn draw_pause_screen(f: &mut Frame, state: &GameState) {
+        Self::draw_game(f, state, true);
+        let lines = vec![Line::from("Esc to resume"), Line::from("Q to quit")];
+        Self::draw_box(f, state, " PAUSED ", lines, Alignment::Center);
     }
 
     pub fn render_game_over(&mut self, state: &GameState) -> Result<()> {
-        self.terminal.draw(|f| {
-            Self::draw_game(f, state);
-
-            let over_block = Block::default()
-                .title(" GAME OVER ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
-                .style(Style::default().bg(Color::DarkGray).fg(Color::White));
-
-            let over_area = Rect {
-                x: (f.area().width.saturating_sub(30)) / 2,
-                y: (f.area().height.saturating_sub(8)) / 2,
-                width: 30.min(f.area().width),
-                height: 8.min(f.area().height),
-            };
-
-            f.render_widget(Clear, over_area);
-            f.render_widget(over_block, over_area);
-
-            let inner_area = Rect {
-                x: over_area.x + 1,
-                y: over_area.y + 1,
-                width: over_area.width.saturating_sub(2),
-                height: over_area.height.saturating_sub(2),
-            };
-
-            let over_text = Paragraph::new(vec![
-                Line::from(format!("Final Score: {}", state.score)).alignment(Alignment::Center),
-                Line::from(format!("Level Reached: {}", state.level)).alignment(Alignment::Center),
-                Line::from(format!("Lines Cleared: {}", state.lines_cleared))
-                    .alignment(Alignment::Center),
-                Line::from("Press any key to exit").alignment(Alignment::Center),
-            ])
-            .alignment(Alignment::Center);
-
-            f.render_widget(over_text, inner_area);
-        })?;
+        self.terminal
+            .draw(|f| Self::draw_game_over_screen(f, state))?;
         Ok(())
+    }
+
+    fn draw_game_over_screen(f: &mut Frame, state: &GameState) {
+        Self::draw_game(f, state, false);
+        let title = if state.marathon_complete {
+            " MARATHON COMPLETE "
+        } else {
+            " GAME OVER "
+        };
+        let lines = vec![
+            Line::from(format!("Final Score: {}", state.score)),
+            Line::from(format!("Level Reached: {}", state.level)),
+            Line::from(format!("Lines Cleared: {}", state.lines_cleared)),
+            Line::from("Press any key to exit"),
+        ];
+        Self::draw_box(f, state, title, lines, Alignment::Center);
+    }
+
+    /// Draws a centered box over the playing field. Skipped when the terminal is too small,
+    /// since the too-small message is showing instead.
+    fn draw_box(
+        f: &mut Frame,
+        state: &GameState,
+        title: &str,
+        lines: Vec<Line>,
+        alignment: Alignment,
+    ) {
+        if Self::play_area(f.area(), state).is_none() {
+            return;
+        }
+        let height = lines.len() as u16 + 2;
+        let width = 30;
+        let area = Rect {
+            x: (f.area().width - width) / 2,
+            y: (f.area().height - height) / 2,
+            width,
+            height,
+        };
+
+        let block = Block::default()
+            .title(title.to_string())
+            .borders(Borders::ALL)
+            .style(Style::default().bg(Color::DarkGray).fg(Color::White));
+        let text = Paragraph::new(lines).alignment(alignment).block(block);
+
+        f.render_widget(Clear, area);
+        f.render_widget(text, area);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GameConfig;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+
+    const WIDTH: u16 = 80;
+    const HEIGHT: u16 = 30;
+
+    fn state() -> GameState {
+        GameState::new(GameConfig {
+            enable_sound: false,
+            ..GameConfig::default()
+        })
+    }
+
+    fn draw(width: u16, height: u16, render: impl FnOnce(&mut Frame)) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(render).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    fn draw_state(state: &GameState) -> Buffer {
+        draw(WIDTH, HEIGHT, |f| Renderer::draw_game(f, state, false))
+    }
+
+    fn text(buffer: &Buffer) -> String {
+        let area = buffer.area;
+        (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn count(buffer: &Buffer, symbol: &str) -> usize {
+        text(buffer).matches(symbol).count()
+    }
+
+    /// Counts a symbol right of the left panels, leaving out the progress bar.
+    fn count_right_of_info(buffer: &Buffer, symbol: &str) -> usize {
+        let start = (buffer.area.width - 50) / 2 + SIDE_PANEL_WIDTH;
+        (0..buffer.area.height)
+            .flat_map(|y| (start..buffer.area.width).map(move |x| (x, y)))
+            .filter(|position| buffer[*position].symbol() == symbol)
+            .count()
+    }
+
+    #[test]
+    fn test_empty_matrix_draws_no_blocks() {
+        let mut state = state();
+        state.next_pieces.clear();
+        assert_eq!(count(&draw_state(&state), "█"), 0);
+    }
+
+    #[test]
+    fn test_piece_and_ghost_are_both_visible() {
+        let mut state = state();
+        state.next_pieces.clear();
+        state.current_piece = Some(Tetrimino {
+            kind: TetriminoType::T,
+            x: 3,
+            y: 5,
+            rotation: 0,
+        });
+        let buffer = draw_state(&state);
+        // Four Minos, each two characters wide.
+        assert_eq!(count(&buffer, "█"), 8);
+        assert_eq!(count_right_of_info(&buffer, "░"), 8);
+    }
+
+    #[test]
+    fn test_ghost_can_be_turned_off() {
+        let mut state = GameState::new(GameConfig {
+            enable_ghost_piece: false,
+            enable_sound: false,
+            ..GameConfig::default()
+        });
+        state.next_pieces.clear();
+        state.current_piece = Some(Tetrimino::new(TetriminoType::T));
+        assert_eq!(count_right_of_info(&draw_state(&state), "░"), 0);
+    }
+
+    #[test]
+    fn test_queue_display_shows_all_four_minos_of_every_type() {
+        for kind in [
+            TetriminoType::I,
+            TetriminoType::O,
+            TetriminoType::T,
+            TetriminoType::S,
+            TetriminoType::Z,
+            TetriminoType::J,
+            TetriminoType::L,
+        ] {
+            let mut state = state();
+            state.next_pieces = vec![kind];
+            assert_eq!(count(&draw_state(&state), "█"), 8, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn test_six_next_pieces_fit_in_24_rows() {
+        let mut state = GameState::new(GameConfig {
+            preview_count: 6,
+            enable_sound: false,
+            ..GameConfig::default()
+        });
+        state.next_pieces = vec![TetriminoType::O; 6];
+        let buffer = draw(80, 24, |f| Renderer::draw_game(f, &state, false));
+        assert_eq!(count(&buffer, "█"), 6 * 8);
+    }
+
+    #[test]
+    fn test_field_is_centered_with_panels_next_to_matrix() {
+        let state = state();
+        let area = Renderer::play_area(Rect::new(0, 0, 200, 50), &state).unwrap();
+        assert_eq!(area.width, 50);
+        assert_eq!(area.x, 75);
+    }
+
+    #[test]
+    fn test_too_small_terminal_shows_message() {
+        let state = state();
+        let buffer = draw(49, 24, |f| Renderer::draw_game(f, &state, false));
+        assert!(text(&buffer).contains("Terminal too small"));
+        let buffer = draw(50, 23, |f| Renderer::draw_game(f, &state, false));
+        assert!(text(&buffer).contains("Terminal too small"));
+        let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false));
+        assert!(!text(&buffer).contains("Terminal too small"));
+    }
+
+    #[test]
+    fn test_overlays_do_not_panic_when_too_small() {
+        let state = state();
+        draw(10, 3, |f| Renderer::draw_pause_screen(f, &state));
+        draw(10, 3, |f| Renderer::draw_game_over_screen(f, &state));
+    }
+
+    #[test]
+    fn test_pause_hides_matrix_and_queues() {
+        let mut state = state();
+        state.held_piece = Some(TetriminoType::O);
+        state.current_piece = Some(Tetrimino {
+            kind: TetriminoType::T,
+            x: 3,
+            y: 5,
+            rotation: 0,
+        });
+        state.board.lock_tetromino(&Tetrimino {
+            kind: TetriminoType::O,
+            x: 0,
+            y: 18,
+            rotation: 0,
+        });
+
+        let buffer = draw(WIDTH, HEIGHT, |f| Renderer::draw_pause_screen(f, &state));
+
+        assert_eq!(count(&buffer, "█"), 0);
+        assert_eq!(count_right_of_info(&buffer, "░"), 0);
+        assert!(text(&buffer).contains("PAUSED"));
+    }
+
+    #[test]
+    fn test_info_panel_shows_time_and_progress() {
+        let mut state = state();
+        state.elapsed = std::time::Duration::from_secs(125);
+        let screen = text(&draw_state(&state));
+        assert!(screen.contains("PROGRESS"));
+        assert!(screen.contains("0/10"));
+        assert!(screen.contains("[H] Help"));
+        assert!(screen.contains("02:05"));
+    }
+
+    #[test]
+    fn test_notification_is_drawn_outside_matrix() {
+        let mut state = state();
+        state.next_pieces.clear();
+        for y in 16..20 {
+            for x in 1..10 {
+                state.board.set_cell(x, y, Some(TetriminoType::I));
+            }
+        }
+        state.current_piece = Some(Tetrimino {
+            kind: TetriminoType::I,
+            x: -2,
+            y: 16,
+            rotation: 1,
+        });
+        state.lock_current_piece();
+        state.complete_line_clear();
+
+        let buffer = draw_state(&state);
+        let area = Renderer::play_area(buffer.area, &state).unwrap();
+        let left_panel: String = (area.y..area.y + area.height)
+            .flat_map(|y| (area.x..area.x + SIDE_PANEL_WIDTH).map(move |x| (x, y)))
+            .map(|position| buffer[position].symbol().to_string())
+            .collect();
+        assert!(left_panel.contains("Tetris"));
+    }
+
+    #[test]
+    fn test_progress_bar_fills_with_goal() {
+        assert_eq!(Renderer::progress_bar(0, 10), "░".repeat(12));
+        assert_eq!(
+            Renderer::progress_bar(5, 10),
+            "█".repeat(6) + &"░".repeat(6)
+        );
+        assert_eq!(Renderer::progress_bar(10, 10), "█".repeat(12));
+    }
+
+    #[test]
+    fn test_help_overlay_lists_controls() {
+        let state = state();
+        let buffer = draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game(f, &state, false);
+            Renderer::draw_help_overlay(f, &state);
+        });
+        let screen = text(&buffer);
+        assert!(screen.contains("CONTROLS"));
+        assert!(screen.contains("Press H to close"));
+    }
+
+    #[test]
+    fn test_longest_notification_fits_in_info_panel() {
+        let mut state = state();
+        state.award_notification_for_test("Back-to-Back T-Spin Double");
+        let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false));
+        let screen = text(&buffer);
+        assert!(screen.contains("Double"));
+    }
+
+    #[test]
+    fn test_marathon_complete_title() {
+        let mut state = state();
+        state.game_over = true;
+        state.marathon_complete = true;
+        let buffer = draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state)
+        });
+        assert!(text(&buffer).contains("MARATHON COMPLETE"));
+    }
+
+    #[test]
+    fn test_buffer_rows_above_skyline_are_visible() {
+        let mut state = state();
+        state.next_pieces.clear();
+        state.current_piece = Some(Tetrimino::at_generation(TetriminoType::O, 10));
+        // At generation, before any drop, the O sits entirely above the Skyline.
+        assert_eq!(count(&draw_state(&state), "█"), 8);
     }
 }
