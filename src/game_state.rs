@@ -82,8 +82,6 @@ pub struct GameState {
     pub(crate) phase: Phase,
     /// Time played, excluding pauses.
     pub elapsed: Duration,
-    /// True while the help overlay is open, which stops play.
-    pub show_help: bool,
     bag: Vec<TetriminoType>,
     hold_used: bool,
     soft_dropping: bool,
@@ -120,7 +118,6 @@ impl GameState {
                 remaining: Duration::ZERO,
             },
             elapsed: Duration::ZERO,
-            show_help: false,
             bag: Vec::new(),
             hold_used: false,
             soft_dropping: false,
@@ -138,7 +135,7 @@ impl GameState {
 
     /// Advances the current phase and all timers.
     pub fn tick(&mut self, dt: Duration) {
-        if self.is_game_over() || self.show_help {
+        if self.is_game_over() {
             return;
         }
         self.elapsed += dt;
@@ -577,10 +574,6 @@ impl GameState {
         self.line_clear_animation().is_some_and(|animation| {
             (animation.elapsed.as_millis() / LINE_CLEAR_BLINK.as_millis()).is_multiple_of(2)
         })
-    }
-
-    pub fn toggle_help(&mut self) {
-        self.show_help = !self.show_help;
     }
 
     #[cfg(test)]
@@ -1315,22 +1308,6 @@ mod tests {
         state.used_rotation_point_5 = true;
         let p = piece(TetriminoType::T, 3, 18, 0);
         assert_eq!(state.detect_tspin(&p), TSpin::Full);
-    }
-
-    // --- Help ---
-
-    #[test]
-    fn test_help_stops_gravity_and_time() {
-        let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
-        state.toggle_help();
-        state.tick(Duration::from_secs(5));
-        assert_eq!(state.current_piece().unwrap().y, 0);
-        assert_eq!(state.elapsed, Duration::ZERO);
-
-        state.toggle_help();
-        state.tick(Duration::from_secs(1));
-        assert_eq!(state.current_piece().unwrap().y, 1);
     }
 
     // --- Phases ---

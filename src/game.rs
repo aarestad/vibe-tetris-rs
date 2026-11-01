@@ -2,6 +2,7 @@ use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
 use crate::game_state::GameState;
 use crate::input::{AutoRepeat, InputAction, InputEvent, InputHandler};
+use crate::screen::Screen;
 use crate::ui::Renderer;
 use anyhow::Result;
 use crossterm::{
@@ -22,6 +23,7 @@ const GAME_OVER_KEY_GUARD: Duration = Duration::from_millis(500);
 
 pub struct Game {
     state: GameState,
+    screen: Screen,
     renderer: Renderer,
     input: InputHandler,
     audio: AudioPlayer,
@@ -47,6 +49,7 @@ impl Game {
 
         Ok(Self {
             state,
+            screen: Screen::default(),
             renderer,
             input,
             audio,
@@ -68,14 +71,13 @@ impl Game {
             let dt = frame_start.duration_since(last_tick);
             last_tick = frame_start;
 
-            if self.handle_pending_input()? {
-                // A pause took real time that must not count as play.
-                last_tick = Instant::now();
-            }
+            self.handle_pending_input();
 
-            self.apply_auto_repeat(dt);
-            self.state.tick(dt);
-            self.renderer.render(&self.state)?;
+            if self.screen.is_playing() {
+                self.apply_auto_repeat(dt);
+                self.state.tick(dt);
+            }
+            self.renderer.render(&self.state, self.screen)?;
 
             if self.state.is_game_over() {
                 self.audio.stop();
@@ -104,41 +106,34 @@ impl Game {
         self.audio.set_volume(0.5);
     }
 
-    /// Handles all input waiting this frame. Returns true if the game was paused.
-    fn handle_pending_input(&mut self) -> Result<bool> {
-        let mut paused = false;
+    /// Handles all input waiting this frame.
+    fn handle_pending_input(&mut self) {
         while let Some(input) = self.input.poll_input() {
-            paused |= self.handle_input(input)?;
+            match input {
+                InputEvent::Pressed(action) => self.handle_press(action),
+                InputEvent::Released(action) => self.handle_release(action),
+            }
         }
-        Ok(paused)
     }
 
     fn apply_auto_repeat(&mut self, dt: Duration) {
         let (direction, moves) = self.auto_repeat.update(dt);
-        if self.state.show_help {
-            return;
-        }
         for _ in 0..moves {
             self.state.shift_piece(direction);
         }
     }
 
-    fn handle_input(&mut self, input: InputEvent) -> Result<bool> {
-        match input {
-            InputEvent::Pressed(action) => self.handle_press(action),
-            InputEvent::Released(action) => {
-                self.handle_release(action);
-                Ok(false)
-            }
+    fn handle_press(&mut self, action: InputAction) {
+        if action == InputAction::Quit {
+            self.state.quit();
+        } else if let Some(screen) = self.screen.after_press(action) {
+            self.switch_screen(screen);
+        } else if self.screen.is_playing() {
+            self.handle_play_press(action);
         }
     }
 
-    fn handle_press(&mut self, action: InputAction) -> Result<bool> {
-        // Play is stopped behind the help overlay, so only these keys do anything.
-        if self.state.show_help && !matches!(action, InputAction::ToggleHelp | InputAction::Quit) {
-            return Ok(false);
-        }
-
+    fn handle_play_press(&mut self, action: InputAction) {
         match action {
             InputAction::MoveLeft => self.press_direction(-1),
             InputAction::MoveRight => self.press_direction(1),
@@ -157,14 +152,18 @@ impl Game {
                 self.state.rotate_piece(false);
             }
             InputAction::Hold => self.state.hold_piece(),
-            InputAction::Pause => {
-                self.handle_pause()?;
-                return Ok(true);
-            }
-            InputAction::ToggleHelp => self.state.toggle_help(),
-            InputAction::Quit => self.state.quit(),
+            // Handled by `handle_press` before play keys are reached.
+            InputAction::Pause | InputAction::ToggleHelp | InputAction::Quit => {}
         }
-        Ok(false)
+    }
+
+    fn switch_screen(&mut self, screen: Screen) {
+        match (self.screen, screen) {
+            (_, Screen::Paused) => self.audio.pause(),
+            (Screen::Paused, _) => self.audio.resume(),
+            _ => {}
+        }
+        self.screen = screen;
     }
 
     fn press_direction(&mut self, direction: i32) {
@@ -181,37 +180,6 @@ impl Game {
             InputAction::MoveDown => self.state.set_soft_drop(false),
             _ => {}
         }
-    }
-
-    /// Stops play and hides the Matrix and queues until Pause is pressed again.
-    fn handle_pause(&mut self) -> Result<()> {
-        self.audio.pause();
-
-        loop {
-            // Drawn every time through so that a resize during the pause is handled.
-            self.renderer.render_pause(&self.state)?;
-
-            while let Some(input) = self.input.poll_input() {
-                match input {
-                    InputEvent::Pressed(InputAction::Pause) => {
-                        self.audio.resume();
-                        self.release_all_held_keys();
-                        return Ok(());
-                    }
-                    InputEvent::Pressed(InputAction::Quit) => {
-                        self.state.quit();
-                        return Ok(());
-                    }
-                    _ => {}
-                }
-            }
-            std::thread::sleep(FRAME_DURATION);
-        }
-    }
-
-    fn release_all_held_keys(&mut self) {
-        self.auto_repeat.clear();
-        self.state.set_soft_drop(false);
     }
 }
 

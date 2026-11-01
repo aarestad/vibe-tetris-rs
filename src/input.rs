@@ -153,13 +153,6 @@ impl AutoRepeat {
         self.timer = self.delay;
     }
 
-    /// Forgets all held keys, for when the game cannot see releases, such as during a pause.
-    pub fn clear(&mut self) {
-        self.left_held = false;
-        self.right_held = false;
-        self.direction = None;
-    }
-
     /// Advances time and returns the direction and number of moves now due.
     pub fn update(&mut self, dt: Duration) -> (i32, u32) {
         let Some(direction) = self.direction else {
@@ -363,13 +356,5 @@ mod tests {
         repeat.press(-1);
         repeat.release(1);
         assert_eq!(repeat.update(MS_300), (-1, 1));
-    }
-
-    #[test]
-    fn test_clear_stops_auto_repeat() {
-        let mut repeat = AutoRepeat::new(MS_300, MS_50);
-        repeat.press(1);
-        repeat.clear();
-        assert_eq!(repeat.update(Duration::from_secs(1)), (0, 0));
     }
 }

@@ -1,4 +1,5 @@
 use crate::game_state::{GameOutcome, GameState};
+use crate::screen::Screen;
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
 use ratatui::{
@@ -30,14 +31,22 @@ impl Renderer {
         Ok(Self { terminal })
     }
 
-    pub fn render(&mut self, state: &GameState) -> Result<()> {
-        self.terminal.draw(|f| {
-            Self::draw_game(f, state, false);
-            if state.show_help {
+    /// Draws the given screen. Called every frame, so a resize on any screen is handled.
+    pub fn render(&mut self, state: &GameState, screen: Screen) -> Result<()> {
+        self.terminal
+            .draw(|f| Self::draw_screen(f, state, screen))?;
+        Ok(())
+    }
+
+    fn draw_screen(f: &mut Frame, state: &GameState, screen: Screen) {
+        match screen {
+            Screen::Playing => Self::draw_game(f, state, false),
+            Screen::Paused => Self::draw_pause_screen(f, state),
+            Screen::Help => {
+                Self::draw_game(f, state, false);
                 Self::draw_help_overlay(f, state);
             }
-        })?;
-        Ok(())
+        }
     }
 
     /// Size of the playing field, side panels included.
@@ -359,12 +368,7 @@ impl Renderer {
         Self::draw_box(f, state, " CONTROLS ", lines, Alignment::Left);
     }
 
-    /// Draws the paused screen: play is hidden and "PAUSED" is shown (Guideline 13.1.6).
-    pub fn render_pause(&mut self, state: &GameState) -> Result<()> {
-        self.terminal.draw(|f| Self::draw_pause_screen(f, state))?;
-        Ok(())
-    }
-
+    /// Hides play and shows "PAUSED" (Guideline 13.1.6).
     fn draw_pause_screen(f: &mut Frame, state: &GameState) {
         Self::draw_game(f, state, true);
         let lines = vec![Line::from("Esc to resume"), Line::from("Q to quit")];
@@ -564,7 +568,8 @@ mod tests {
     #[test]
     fn test_overlays_do_not_panic_when_too_small() {
         let state = state();
-        draw(10, 3, |f| Renderer::draw_pause_screen(f, &state));
+        draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Paused));
+        draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Help));
         draw(10, 3, |f| Renderer::draw_game_over_screen(f, &state));
     }
 
@@ -585,7 +590,9 @@ mod tests {
             rotation: 0,
         });
 
-        let buffer = draw(WIDTH, HEIGHT, |f| Renderer::draw_pause_screen(f, &state));
+        let buffer = draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_screen(f, &state, Screen::Paused)
+        });
 
         assert_eq!(count(&buffer, "█"), 0);
         assert_eq!(count_right_of_info(&buffer, "░"), 0);
@@ -631,6 +638,16 @@ mod tests {
     }
 
     #[test]
+    fn test_playing_screen_has_no_overlay() {
+        let state = state();
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_screen(f, &state, Screen::Playing)
+        }));
+        assert!(!screen.contains("PAUSED"));
+        assert!(!screen.contains("CONTROLS"));
+    }
+
+    #[test]
     fn test_progress_bar_fills_with_goal() {
         assert_eq!(Renderer::progress_bar(0, 10), "░".repeat(12));
         assert_eq!(
@@ -644,8 +661,7 @@ mod tests {
     fn test_help_overlay_lists_controls() {
         let state = state();
         let buffer = draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game(f, &state, false);
-            Renderer::draw_help_overlay(f, &state);
+            Renderer::draw_screen(f, &state, Screen::Help)
         });
         let screen = text(&buffer);
         assert!(screen.contains("CONTROLS"));
