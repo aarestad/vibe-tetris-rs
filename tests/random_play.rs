@@ -45,7 +45,7 @@ fn random_input(random: &mut Lcg) -> Option<InputEvent> {
 
 fn play(config: GameConfig, key_release_events: bool, seed: u64) {
     let mut random = Lcg(seed);
-    let mut session = Session::new(config);
+    let mut session = Session::with_seed(config, seed);
     session.set_key_release_events(key_release_events);
 
     for _ in 0..20_000 {
@@ -53,22 +53,22 @@ fn play(config: GameConfig, key_release_events: bool, seed: u64) {
             session.handle_input(input);
         }
 
-        let score_before = session.state().scoring.score;
-        let elapsed_before = session.state().elapsed;
+        let score_before = session.state().scoring().score;
+        let elapsed_before = session.state().elapsed();
         session.update(Duration::from_millis(random.next(40)));
 
         let state = session.state();
-        assert!(state.scoring.score >= score_before);
+        assert!(state.scoring().score >= score_before);
         if !session.screen().is_playing() {
-            assert_eq!(state.elapsed, elapsed_before);
+            assert_eq!(state.elapsed(), elapsed_before);
         }
         if let Some(piece) = state.current_piece()
             && !state.is_game_over()
         {
-            assert!(state.board.is_valid_position(&piece), "{piece:?}");
+            assert!(state.board().is_valid_position(&piece), "{piece:?}");
         }
-        assert!((1..=15).contains(&state.scoring.level));
-        assert_eq!(state.next_pieces.len(), state.config.preview_count);
+        assert!((1..=15).contains(&state.scoring().level));
+        assert_eq!(state.next_pieces().len(), state.config().preview_count);
 
         if state.is_game_over() {
             return;

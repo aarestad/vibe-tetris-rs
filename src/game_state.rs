@@ -2,7 +2,8 @@ use crate::board::Board;
 use crate::config::{GameConfig, LockDownMode};
 use crate::scoring::{Scoring, TSpin};
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
-use rand::rng;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::time::Duration;
 
@@ -74,22 +75,23 @@ pub enum Phase {
 }
 
 pub struct GameState {
-    pub board: Board,
-    pub held_piece: Option<TetriminoType>,
-    pub next_pieces: Vec<TetriminoType>,
-    pub scoring: Scoring,
-    pub config: GameConfig,
+    pub(crate) board: Board,
+    pub(crate) held_piece: Option<TetriminoType>,
+    pub(crate) next_pieces: Vec<TetriminoType>,
+    pub(crate) scoring: Scoring,
+    pub(crate) config: GameConfig,
     pub(crate) phase: Phase,
     /// Time played, excluding pauses.
-    pub elapsed: Duration,
+    pub(crate) elapsed: Duration,
     bag: Vec<TetriminoType>,
+    bag_rng: StdRng,
     hold_used: bool,
     soft_dropping: bool,
     fall_progress: Duration,
     lock: LockState,
     last_move_was_rotation: bool,
     used_rotation_point_5: bool,
-    notification: Option<(String, Duration)>,
+    pub(crate) notification: Option<(String, Duration)>,
 }
 
 pub struct LineClearAnimation {
@@ -107,7 +109,17 @@ impl LineClearAnimation {
 }
 
 impl GameState {
+    /// Starts a game with an unpredictable order of Tetriminos.
     pub fn new(config: GameConfig) -> Self {
+        Self::with_rng(config, rand::make_rng())
+    }
+
+    /// Starts a game whose order of Tetriminos is fixed by the seed, so it can be repeated.
+    pub fn with_seed(config: GameConfig, seed: u64) -> Self {
+        Self::with_rng(config, StdRng::seed_from_u64(seed))
+    }
+
+    fn with_rng(config: GameConfig, bag_rng: StdRng) -> Self {
         let mut game_state = Self {
             board: Board::new(config.board_width, config.board_height),
             held_piece: None,
@@ -119,6 +131,7 @@ impl GameState {
             },
             elapsed: Duration::ZERO,
             bag: Vec::new(),
+            bag_rng,
             hold_used: false,
             soft_dropping: false,
             fall_progress: Duration::ZERO,
@@ -131,6 +144,31 @@ impl GameState {
         game_state.refill_bag();
         game_state.populate_next_pieces();
         game_state
+    }
+
+    pub fn board(&self) -> &Board {
+        &self.board
+    }
+
+    pub fn held_piece(&self) -> Option<TetriminoType> {
+        self.held_piece
+    }
+
+    pub fn next_pieces(&self) -> &[TetriminoType] {
+        &self.next_pieces
+    }
+
+    pub fn scoring(&self) -> &Scoring {
+        &self.scoring
+    }
+
+    pub fn config(&self) -> &GameConfig {
+        &self.config
+    }
+
+    /// Time played, excluding pauses.
+    pub fn elapsed(&self) -> Duration {
+        self.elapsed
     }
 
     /// Advances the current phase and all timers.
@@ -233,7 +271,8 @@ impl GameState {
         self.fall_progress += dt;
         while self.fall_progress >= interval {
             self.fall_progress -= interval;
-            if !self.fall_one_row() {
+            let points = u64::from(self.soft_dropping);
+            if !self.drop_one_row(points) {
                 self.fall_progress = Duration::ZERO;
                 break;
             }
@@ -265,13 +304,12 @@ impl GameState {
         })
     }
 
-    fn fall_one_row(&mut self) -> bool {
+    /// Moves down one row if there is room, awarding the given Soft Drop points for it.
+    fn drop_one_row(&mut self, soft_drop_points: u64) -> bool {
         if !self.move_piece(0, 1) {
             return false;
         }
-        if self.soft_dropping {
-            self.scoring.add_soft_drop(1);
-        }
+        self.scoring.add_soft_drop(soft_drop_points);
         self.last_move_was_rotation = false;
         self.note_new_lowest_row();
         true
@@ -328,17 +366,11 @@ impl GameState {
             return;
         }
         self.phase = Phase::Falling(piece);
-        self.fall_one_row_silently();
-    }
-
-    fn fall_one_row_silently(&mut self) {
-        if self.move_piece(0, 1) {
-            self.note_new_lowest_row();
-        }
+        self.drop_one_row(0);
     }
 
     /// Moves the Tetrimino in play if the target position is free. Applies no game rules.
-    pub fn move_piece(&mut self, dx: i32, dy: i32) -> bool {
+    fn move_piece(&mut self, dx: i32, dy: i32) -> bool {
         let Phase::Falling(piece) = &mut self.phase else {
             return false;
         };
@@ -381,13 +413,7 @@ impl GameState {
     /// Drops one row and awards one Soft Drop point. Used on terminals that cannot report
     /// key releases, where each key event stands for one step of Soft Drop.
     pub fn soft_drop_step(&mut self) -> bool {
-        let moved = self.move_piece(0, 1);
-        if moved {
-            self.scoring.add_soft_drop(1);
-            self.last_move_was_rotation = false;
-            self.note_new_lowest_row();
-        }
-        moved
+        self.drop_one_row(1)
     }
 
     /// Rotates using the Super Rotation System (Guideline A1.4). The first rotation point
@@ -401,18 +427,17 @@ impl GameState {
             return false;
         }
 
-        let from = piece.rotation % 4;
         let to = if clockwise {
-            (from + 1) % 4
+            piece.facing.clockwise()
         } else {
-            (from + 3) % 4
+            piece.facing.counterclockwise()
         };
 
-        for (point, (dx, dy)) in rotation_points(piece.kind, from, to) {
+        for (point, (dx, dy)) in rotation_points(piece.kind, piece.facing, clockwise) {
             let candidate = Tetrimino {
                 x: piece.x + dx,
                 y: piece.y + dy,
-                rotation: to,
+                facing: to,
                 ..piece
             };
             if self.board.is_valid_position(&candidate) {
@@ -441,12 +466,12 @@ impl GameState {
     }
 
     /// Locks the Tetrimino in play and starts the Pattern and Animate phases.
-    pub fn lock_current_piece(&mut self) {
+    pub(crate) fn lock_current_piece(&mut self) {
         let Some(piece) = self.falling_piece() else {
             return;
         };
         let tspin = self.detect_tspin(&piece);
-        self.board.lock_tetromino(&piece);
+        self.board.lock_tetrimino(&piece);
         self.hold_used = false;
 
         // A whole Tetrimino above the Skyline is a Lock Out (Guideline 10).
@@ -472,7 +497,7 @@ impl GameState {
     }
 
     /// Eliminate phase: removes the lines, then scores them.
-    pub fn complete_line_clear(&mut self) {
+    pub(crate) fn complete_line_clear(&mut self) {
         let Phase::LineClear(animation) = &self.phase else {
             return;
         };
@@ -507,7 +532,7 @@ impl GameState {
         }
 
         const CORNERS_CLOCKWISE: [(i32, i32); 4] = [(-1, -1), (1, -1), (1, 1), (-1, 1)];
-        let facing = piece.rotation % 4;
+        let facing = piece.facing as usize;
         let occupied = |offset: usize| {
             let (dx, dy) = CORNERS_CLOCKWISE[(facing + offset) % 4];
             self.board.is_occupied(piece.x + 1 + dx, piece.y + 1 + dy)
@@ -537,7 +562,7 @@ impl GameState {
             TetriminoType::J,
             TetriminoType::L,
         ];
-        new_bag.shuffle(&mut rng());
+        new_bag.shuffle(&mut self.bag_rng);
         self.bag = new_bag;
     }
 
@@ -576,11 +601,6 @@ impl GameState {
         })
     }
 
-    #[cfg(test)]
-    pub fn award_notification_for_test(&mut self, text: &str) {
-        self.notification = Some((text.to_string(), NOTIFICATION_TIME));
-    }
-
     /// Text of the current action notification, if one is showing (Guideline 13.1.5).
     pub fn notification_text(&self) -> Option<&str> {
         self.notification.as_ref().map(|(text, _)| text.as_str())
@@ -590,6 +610,7 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tetrimino::Facing;
     use std::collections::HashSet;
 
     const ALL_TYPES: [TetriminoType; 7] = [
@@ -620,13 +641,8 @@ mod tests {
         })
     }
 
-    fn piece(kind: TetriminoType, x: i32, y: i32, rotation: usize) -> Tetrimino {
-        Tetrimino {
-            kind,
-            x,
-            y,
-            rotation,
-        }
+    fn piece(kind: TetriminoType, x: i32, y: i32, facing: Facing) -> Tetrimino {
+        Tetrimino { kind, x, y, facing }
     }
 
     fn fill(state: &mut GameState, cells: &[(usize, i32)]) {
@@ -654,7 +670,7 @@ mod tests {
         for y in 16..20 {
             fill_row_except(state, y, &[0]);
         }
-        state.phase = Phase::Falling(piece(TetriminoType::I, -2, 16, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::I, -2, 16, Facing::East));
         lock_and_clear(state);
     }
 
@@ -663,7 +679,7 @@ mod tests {
         fill_row_except(state, 19, &[4]);
         fill_row_except(state, 18, &[3, 4, 5]);
         fill(state, &[(3, 17)]);
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, Facing::East));
         assert!(state.rotate_piece(true));
         lock_and_clear(state);
     }
@@ -695,7 +711,7 @@ mod tests {
         state.next_pieces[0] = TetriminoType::T;
         state.spawn_piece();
         let p = state.current_piece().unwrap();
-        assert_eq!((p.x, p.y, p.rotation), (3, -1, 0));
+        assert_eq!((p.x, p.y, p.facing), (3, -1, Facing::North));
         assert!(!state.is_game_over());
     }
 
@@ -721,7 +737,7 @@ mod tests {
     #[test]
     fn test_lock_out_ends_game() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, Facing::North));
         state.lock_current_piece();
         assert!(state.is_game_over());
     }
@@ -729,7 +745,7 @@ mod tests {
     #[test]
     fn test_peeking_lock_is_not_game_over() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -1, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -1, Facing::North));
         state.lock_current_piece();
         assert!(!state.is_game_over());
     }
@@ -765,6 +781,21 @@ mod tests {
     }
 
     #[test]
+    fn test_same_seed_gives_the_same_tetriminos() {
+        let sequence = |seed| {
+            let mut state = GameState::with_seed(config(), seed);
+            (0..50)
+                .map(|_| {
+                    state.spawn_piece();
+                    state.current_piece().unwrap().kind
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(sequence(7), sequence(7));
+        assert_ne!(sequence(7), sequence(8));
+    }
+
+    #[test]
     fn test_next_queue_stays_full() {
         let mut state = new_state();
         for _ in 0..20 {
@@ -778,11 +809,11 @@ mod tests {
     #[test]
     fn test_ccw_then_cw_does_not_overflow() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, Facing::North));
         assert!(state.rotate_piece(false));
-        assert_eq!(state.current_piece().unwrap().rotation, 3);
+        assert_eq!(state.current_piece().unwrap().facing, Facing::West);
         assert!(state.rotate_piece(true));
-        assert_eq!(state.current_piece().unwrap().rotation, 0);
+        assert_eq!(state.current_piece().unwrap().facing, Facing::North);
     }
 
     #[test]
@@ -790,7 +821,7 @@ mod tests {
         for kind in ALL_TYPES {
             for clockwise in [true, false] {
                 let mut state = new_state();
-                let start = piece(kind, 3, 5, 0);
+                let start = piece(kind, 3, 5, Facing::North);
                 state.phase = Phase::Falling(start);
                 for _ in 0..4 {
                     state.rotate_piece(clockwise);
@@ -804,20 +835,20 @@ mod tests {
     fn test_rotate_kicks_off_left_wall() {
         // East-facing T against the left wall: South would hit the wall, so Point 2 shifts right.
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, -1, 5, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::T, -1, 5, Facing::East));
         assert!(state.rotate_piece(true));
         let p = state.current_piece().unwrap();
-        assert_eq!((p.x, p.y, p.rotation), (0, 5, 2));
+        assert_eq!((p.x, p.y, p.facing), (0, 5, Facing::South));
     }
 
     #[test]
     fn test_rotate_kicks_off_floor_with_i() {
         // I North on the floor, rotating to East: only Point 5 (right 1, up 2) can fit.
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::I, 3, 18, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::I, 3, 18, Facing::North));
         assert!(state.rotate_piece(true));
         let p = state.current_piece().unwrap();
-        assert_eq!((p.x, p.y, p.rotation), (4, 16, 1));
+        assert_eq!((p.x, p.y, p.facing), (4, 16, Facing::East));
     }
 
     #[test]
@@ -825,10 +856,10 @@ mod tests {
         // Points 1 to 3 are blocked, and T North has no Point 4.
         let mut state = new_state();
         fill(&mut state, &[(4, 12), (3, 10)]);
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 10, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 10, Facing::North));
         assert!(state.rotate_piece(true));
         let p = state.current_piece().unwrap();
-        assert_eq!((p.x, p.y, p.rotation), (2, 12, 1));
+        assert_eq!((p.x, p.y, p.facing), (2, 12, Facing::East));
         assert!(state.used_rotation_point_5);
     }
 
@@ -843,7 +874,7 @@ mod tests {
                 }
             }
         }
-        let start = piece(TetriminoType::T, 3, 9, 0);
+        let start = piece(TetriminoType::T, 3, 9, Facing::North);
         state.phase = Phase::Falling(start);
         assert!(!state.rotate_piece(true));
         assert_eq!(state.current_piece().unwrap(), start);
@@ -852,7 +883,7 @@ mod tests {
     #[test]
     fn test_rotating_o_changes_nothing() {
         let mut state = new_state();
-        let start = piece(TetriminoType::O, 4, 5, 0);
+        let start = piece(TetriminoType::O, 4, 5, Facing::North);
         state.phase = Phase::Falling(start);
         assert!(!state.rotate_piece(true));
         assert_eq!(state.current_piece().unwrap(), start);
@@ -888,7 +919,7 @@ mod tests {
     #[test]
     fn test_gravity_follows_current_level() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.tick(Duration::from_millis(999));
         assert_eq!(state.current_piece().unwrap().y, 0);
         state.tick(Duration::from_millis(1));
@@ -903,7 +934,7 @@ mod tests {
     fn test_high_gravity_falls_many_rows_in_one_tick() {
         let mut state = new_state();
         state.scoring.level = 15;
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.tick(Duration::from_millis(16));
         assert!(state.current_piece().unwrap().y >= 2);
     }
@@ -911,7 +942,7 @@ mod tests {
     #[test]
     fn test_soft_drop_is_20_times_faster_and_scores_per_row() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.set_soft_drop(true);
         state.tick(Duration::from_millis(50));
         assert_eq!(state.current_piece().unwrap().y, 1);
@@ -928,7 +959,7 @@ mod tests {
     #[test]
     fn test_starting_soft_drop_does_not_release_built_up_gravity() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.tick(Duration::from_millis(900));
         assert_eq!(state.current_piece().unwrap().y, 0);
 
@@ -945,7 +976,7 @@ mod tests {
     #[test]
     fn test_ending_soft_drop_keeps_fraction_of_row() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.set_soft_drop(true);
         state.tick(Duration::from_millis(45));
         state.set_soft_drop(false);
@@ -958,7 +989,7 @@ mod tests {
     #[test]
     fn test_setting_soft_drop_twice_changes_nothing() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.tick(Duration::from_millis(800));
         state.set_soft_drop(false);
         assert_eq!(state.fall_progress, Duration::from_millis(800));
@@ -967,7 +998,7 @@ mod tests {
     #[test]
     fn test_soft_drop_step_scores_one_point() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         assert!(state.soft_drop_step());
         assert_eq!(state.scoring.score, 1);
     }
@@ -975,7 +1006,7 @@ mod tests {
     #[test]
     fn test_soft_drop_landing_waits_for_lock_timer() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, Facing::North));
         assert!(!state.soft_drop_step());
         assert!(state.current_piece().is_some());
     }
@@ -983,7 +1014,7 @@ mod tests {
     #[test]
     fn test_hard_drop_scores_two_per_row_and_locks() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 8, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 8, Facing::North));
         state.hard_drop();
         assert_eq!(state.scoring.score, 20);
         assert!(state.current_piece().is_none());
@@ -994,7 +1025,7 @@ mod tests {
     fn test_hard_drop_scores_level_independently() {
         let mut state = new_state();
         state.scoring.level = 7;
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 17, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 17, Facing::North));
         state.hard_drop();
         assert_eq!(state.scoring.score, 2);
     }
@@ -1002,7 +1033,7 @@ mod tests {
     #[test]
     fn test_gravity_does_not_score() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         state.tick(Duration::from_secs(1));
         assert_eq!(state.scoring.score, 0);
     }
@@ -1011,7 +1042,7 @@ mod tests {
 
     fn landed_o(mode: LockDownMode) -> GameState {
         let mut state = state_with_mode(mode);
-        let p = piece(TetriminoType::O, 4, 18, 0);
+        let p = piece(TetriminoType::O, 4, 18, Facing::North);
         state.phase = Phase::Falling(p);
         state.lock = LockState::new(p.y);
         state
@@ -1053,7 +1084,7 @@ mod tests {
     #[test]
     fn test_extended_moves_only_count_after_landing() {
         let mut state = state_with_mode(LockDownMode::Extended);
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 0, Facing::North));
         for _ in 0..3 {
             state.shift_piece(1);
             state.shift_piece(-1);
@@ -1064,7 +1095,7 @@ mod tests {
     #[test]
     fn test_extended_new_lowest_row_restores_moves() {
         let mut state = state_with_mode(LockDownMode::Extended);
-        let p = piece(TetriminoType::O, 0, 10, 0);
+        let p = piece(TetriminoType::O, 0, 10, Facing::North);
         state.phase = Phase::Falling(p);
         state.lock = LockState::new(p.y);
         fill(&mut state, &[(0, 12), (1, 12)]);
@@ -1103,7 +1134,7 @@ mod tests {
         let mut state = landed_o(LockDownMode::Classic);
         state.tick(Duration::from_millis(400));
         let before = state.lock.timer;
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 16, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 16, Facing::North));
         state.apply_gravity(Duration::ZERO);
         state.update_lock_down(Duration::from_millis(100));
         assert_eq!(state.lock.timer, before);
@@ -1136,7 +1167,7 @@ mod tests {
     #[test]
     fn test_first_hold_takes_from_next_queue() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, 2));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, Facing::South));
         state.next_pieces[0] = TetriminoType::I;
         state.hold_piece();
         assert_eq!(state.held_piece, Some(TetriminoType::T));
@@ -1147,14 +1178,17 @@ mod tests {
     #[test]
     fn test_hold_swap_returns_to_generation_position_facing_north() {
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::T, 5, 10, 2));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 5, 10, Facing::South));
         state.held_piece = Some(TetriminoType::J);
         let next_before = state.next_pieces.clone();
 
         state.hold_piece();
 
         let p = state.current_piece().unwrap();
-        assert_eq!((p.kind, p.x, p.y, p.rotation), (TetriminoType::J, 3, -1, 0));
+        assert_eq!(
+            (p.kind, p.x, p.y, p.facing),
+            (TetriminoType::J, 3, -1, Facing::North)
+        );
         assert_eq!(state.held_piece, Some(TetriminoType::T));
         assert_eq!(state.next_pieces, next_before);
     }
@@ -1231,7 +1265,7 @@ mod tests {
         fill_row_except(&mut state, 19, &[4]);
         fill_row_except(&mut state, 18, &[3, 4, 5]);
         fill(&mut state, &[(3, 17)]);
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, 2));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, Facing::South));
         lock_and_clear(&mut state);
         assert_eq!(state.scoring.score, 300);
     }
@@ -1239,7 +1273,7 @@ mod tests {
     #[test]
     fn test_move_after_rotation_cancels_tspin() {
         let mut state = new_state();
-        let p = piece(TetriminoType::T, 3, 10, 0);
+        let p = piece(TetriminoType::T, 3, 10, Facing::North);
         state.phase = Phase::Falling(p);
         state.rotate_piece(true);
         state.shift_piece(1);
@@ -1250,7 +1284,7 @@ mod tests {
     fn test_non_t_is_not_a_tspin() {
         let mut state = new_state();
         state.last_move_was_rotation = true;
-        let p = piece(TetriminoType::S, 0, 18, 0);
+        let p = piece(TetriminoType::S, 0, 18, Facing::North);
         assert_eq!(state.detect_tspin(&p), TSpin::None);
     }
 
@@ -1262,14 +1296,14 @@ mod tests {
         let br = (5, 11);
         let bl = (3, 11);
         let cases = [
-            (0, [tl, tr, bl], TSpin::Full),
-            (0, [bl, br, tl], TSpin::Mini),
-            (1, [tr, br, tl], TSpin::Full),
-            (1, [tl, bl, tr], TSpin::Mini),
-            (2, [br, bl, tr], TSpin::Full),
-            (2, [tl, tr, br], TSpin::Mini),
-            (3, [bl, tl, br], TSpin::Full),
-            (3, [tr, br, tl], TSpin::Mini),
+            (Facing::North, [tl, tr, bl], TSpin::Full),
+            (Facing::North, [bl, br, tl], TSpin::Mini),
+            (Facing::East, [tr, br, tl], TSpin::Full),
+            (Facing::East, [tl, bl, tr], TSpin::Mini),
+            (Facing::South, [br, bl, tr], TSpin::Full),
+            (Facing::South, [tl, tr, br], TSpin::Mini),
+            (Facing::West, [bl, tl, br], TSpin::Full),
+            (Facing::West, [tr, br, tl], TSpin::Mini),
         ];
         for (facing, corners, expected) in cases {
             let mut state = new_state();
@@ -1278,7 +1312,7 @@ mod tests {
             }
             state.last_move_was_rotation = true;
             let p = piece(TetriminoType::T, 3, 9, facing);
-            assert_eq!(state.detect_tspin(&p), expected, "facing {facing}");
+            assert_eq!(state.detect_tspin(&p), expected, "{facing:?}");
         }
     }
 
@@ -1287,7 +1321,7 @@ mod tests {
         let mut state = new_state();
         fill(&mut state, &[(3, 9), (5, 9)]);
         state.last_move_was_rotation = true;
-        let p = piece(TetriminoType::T, 3, 9, 0);
+        let p = piece(TetriminoType::T, 3, 9, Facing::North);
         assert_eq!(state.detect_tspin(&p), TSpin::None);
     }
 
@@ -1296,7 +1330,7 @@ mod tests {
         let mut state = new_state();
         fill(&mut state, &[(3, 18)]);
         state.last_move_was_rotation = true;
-        let p = piece(TetriminoType::T, 3, 18, 0);
+        let p = piece(TetriminoType::T, 3, 18, Facing::North);
         assert_eq!(state.detect_tspin(&p), TSpin::Mini);
     }
 
@@ -1306,7 +1340,7 @@ mod tests {
         fill(&mut state, &[(3, 18)]);
         state.last_move_was_rotation = true;
         state.used_rotation_point_5 = true;
-        let p = piece(TetriminoType::T, 3, 18, 0);
+        let p = piece(TetriminoType::T, 3, 18, Facing::North);
         assert_eq!(state.detect_tspin(&p), TSpin::Full);
     }
 
@@ -1336,7 +1370,7 @@ mod tests {
     #[test]
     fn test_game_over_ignores_input_but_keeps_piece_on_screen() {
         let mut state = new_state();
-        let p = piece(TetriminoType::T, 3, 5, 0);
+        let p = piece(TetriminoType::T, 3, 5, Facing::North);
         state.phase = Phase::Falling(p);
         state.quit();
         assert_eq!(state.outcome(), Some(GameOutcome::Quit));
@@ -1369,7 +1403,7 @@ mod tests {
         assert!(state.current_piece().is_some());
 
         let mut state = new_state();
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, Facing::North));
         state.lock_current_piece();
         assert_eq!(state.outcome(), Some(GameOutcome::LockOut));
     }
@@ -1391,7 +1425,7 @@ mod tests {
         fill_row_except(&mut state, 19, &[4]);
         fill_row_except(&mut state, 18, &[3, 4, 5]);
         fill(&mut state, &[(3, 17)]);
-        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, 1));
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 17, Facing::East));
         assert!(state.rotate_piece(true));
         state.lock_current_piece();
         assert_eq!(state.scoring.score, 0);
@@ -1406,7 +1440,7 @@ mod tests {
     fn test_line_clear_animation_then_clear_then_generation() {
         let mut state = new_state();
         fill_row_except(&mut state, 19, &[4, 5]);
-        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, 0));
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, Facing::North));
         state.lock_current_piece();
 
         assert_eq!(state.line_clear_animation().unwrap().cleared_rows, vec![19]);

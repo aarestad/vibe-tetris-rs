@@ -24,13 +24,24 @@ pub struct Session {
 }
 
 impl Session {
+    /// Starts a session with an unpredictable order of Tetriminos.
     pub fn new(config: GameConfig) -> Self {
+        let state = GameState::new(config);
+        Self::with_state(state)
+    }
+
+    /// Starts a session whose order of Tetriminos is fixed by the seed, so it can be repeated.
+    pub fn with_seed(config: GameConfig, seed: u64) -> Self {
+        Self::with_state(GameState::with_seed(config, seed))
+    }
+
+    fn with_state(state: GameState) -> Self {
         let auto_repeat = AutoRepeat::new(
-            Duration::from_millis(config.das_delay),
-            Duration::from_millis(config.das_repeat),
+            Duration::from_millis(state.config.das_delay),
+            Duration::from_millis(state.config.das_repeat),
         );
         Self {
-            state: GameState::new(config),
+            state,
             screen: Screen::default(),
             auto_repeat,
             key_release_events: false,
@@ -143,7 +154,7 @@ impl Session {
 mod tests {
     use super::*;
     use crate::game_state::{GameOutcome, Phase};
-    use crate::tetrimino::{Tetrimino, TetriminoType};
+    use crate::tetrimino::{Facing, Tetrimino, TetriminoType};
     use InputAction::*;
 
     const FRAME: Duration = Duration::from_millis(16);
@@ -165,7 +176,7 @@ mod tests {
             kind: TetriminoType::T,
             x: 3,
             y: 5,
-            rotation: 0,
+            facing: Facing::North,
         }
     }
 
@@ -217,9 +228,9 @@ mod tests {
         session.handle_input(press(MoveRight));
         assert_eq!(piece(&session).x, 3);
         session.handle_input(press(RotateClockwise));
-        assert_eq!(piece(&session).rotation, 1);
+        assert_eq!(piece(&session).facing, Facing::East);
         session.handle_input(press(RotateCounterClockwise));
-        assert_eq!(piece(&session).rotation, 0);
+        assert_eq!(piece(&session).facing, Facing::North);
     }
 
     #[test]
@@ -463,7 +474,7 @@ mod tests {
                 kind: TetriminoType::I,
                 x: -2,
                 y: 16,
-                rotation: 1,
+                facing: Facing::East,
             });
             session.handle_input(press(HardDrop));
             tetrises += 1;

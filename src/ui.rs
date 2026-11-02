@@ -434,6 +434,7 @@ mod tests {
     use super::*;
     use crate::config::GameConfig;
     use crate::game_state::Phase;
+    use crate::tetrimino::Facing;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
 
@@ -497,7 +498,7 @@ mod tests {
             kind: TetriminoType::T,
             x: 3,
             y: 5,
-            rotation: 0,
+            facing: Facing::North,
         });
         let buffer = draw_state(&state);
         // Four Minos, each two characters wide.
@@ -581,13 +582,13 @@ mod tests {
             kind: TetriminoType::T,
             x: 3,
             y: 5,
-            rotation: 0,
+            facing: Facing::North,
         });
-        state.board.lock_tetromino(&Tetrimino {
+        state.board.lock_tetrimino(&Tetrimino {
             kind: TetriminoType::O,
             x: 0,
             y: 18,
-            rotation: 0,
+            facing: Facing::North,
         });
 
         let buffer = draw(WIDTH, HEIGHT, |f| {
@@ -623,7 +624,7 @@ mod tests {
             kind: TetriminoType::I,
             x: -2,
             y: 16,
-            rotation: 1,
+            facing: Facing::East,
         });
         state.lock_current_piece();
         state.complete_line_clear();
@@ -671,7 +672,10 @@ mod tests {
     #[test]
     fn test_longest_notification_fits_in_info_panel() {
         let mut state = state();
-        state.award_notification_for_test("Back-to-Back T-Spin Double");
+        state.notification = Some((
+            "Back-to-Back T-Spin Double".to_string(),
+            std::time::Duration::from_secs(2),
+        ));
         let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false));
         let screen = text(&buffer);
         assert!(screen.contains("Double"));

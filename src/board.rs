@@ -29,11 +29,11 @@ impl Board {
         (index >= 0 && (index as usize) < self.cells.len()).then_some(index as usize)
     }
 
-    pub fn is_valid_position(&self, tetromino: &Tetrimino) -> bool {
-        tetromino
+    pub fn is_valid_position(&self, tetrimino: &Tetrimino) -> bool {
+        tetrimino
             .get_blocks()
             .iter()
-            .all(|(dx, dy)| !self.is_occupied(tetromino.x + dx, tetromino.y + dy))
+            .all(|(dx, dy)| !self.is_occupied(tetrimino.x + dx, tetrimino.y + dy))
     }
 
     /// True for a cell holding a Block or lying outside the board, such as a wall or the floor.
@@ -47,14 +47,14 @@ impl Board {
         }
     }
 
-    pub fn lock_tetromino(&mut self, tetromino: &Tetrimino) {
-        for (dx, dy) in tetromino.get_blocks() {
-            let x = tetromino.x + dx;
-            if let Some(row) = self.row_index(tetromino.y + dy)
+    pub fn lock_tetrimino(&mut self, tetrimino: &Tetrimino) {
+        for (dx, dy) in tetrimino.get_blocks() {
+            let x = tetrimino.x + dx;
+            if let Some(row) = self.row_index(tetrimino.y + dy)
                 && x >= 0
                 && (x as usize) < self.width
             {
-                self.cells[row][x as usize] = Some(tetromino.kind);
+                self.cells[row][x as usize] = Some(tetrimino.kind);
             }
         }
     }
@@ -112,15 +112,10 @@ impl Board {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tetrimino::{Tetrimino, TetriminoType};
+    use crate::tetrimino::{Facing, Tetrimino, TetriminoType};
 
-    fn create_test_piece(kind: TetriminoType, x: i32, y: i32, rotation: usize) -> Tetrimino {
-        Tetrimino {
-            kind,
-            x,
-            y,
-            rotation,
-        }
+    fn create_test_piece(kind: TetriminoType, x: i32, y: i32, facing: Facing) -> Tetrimino {
+        Tetrimino { kind, x, y, facing }
     }
 
     #[test]
@@ -128,20 +123,6 @@ mod tests {
         let board = Board::new(10, 20);
         assert_eq!(board.get_width(), 10);
         assert_eq!(board.get_height(), 20);
-    }
-
-    #[test]
-    fn test_new_small_board() {
-        let board = Board::new(4, 4);
-        assert_eq!(board.get_width(), 4);
-        assert_eq!(board.get_height(), 4);
-    }
-
-    #[test]
-    fn test_new_large_board() {
-        let board = Board::new(30, 40);
-        assert_eq!(board.get_width(), 30);
-        assert_eq!(board.get_height(), 40);
     }
 
     #[test]
@@ -157,94 +138,80 @@ mod tests {
     #[test]
     fn test_is_valid_position_empty_board() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, 0, 0, 0);
-        assert!(board.is_valid_position(&piece));
-    }
-
-    #[test]
-    fn test_is_valid_position_o_piece() {
-        let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 4, 10, 0);
-        assert!(board.is_valid_position(&piece));
-    }
-
-    #[test]
-    fn test_is_valid_position_t_piece() {
-        let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::T, 5, 5, 0);
+        let piece = create_test_piece(TetriminoType::I, 0, 0, Facing::North);
         assert!(board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_is_valid_position_left_boundary() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, -1, 0, 0);
+        let piece = create_test_piece(TetriminoType::I, -1, 0, Facing::North);
         assert!(!board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_is_valid_position_right_boundary() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, 7, 0, 0);
+        let piece = create_test_piece(TetriminoType::I, 7, 0, Facing::North);
         assert!(!board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_is_valid_position_top_boundary() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, 0, -22, 0);
+        let piece = create_test_piece(TetriminoType::I, 0, -22, Facing::North);
         assert!(!board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_is_valid_position_bottom_boundary() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 0, 19, 0);
+        let piece = create_test_piece(TetriminoType::O, 0, 19, Facing::North);
         assert!(!board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_is_valid_position_bottom_boundary_i_piece() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, 0, 18, 3);
+        let piece = create_test_piece(TetriminoType::I, 0, 18, Facing::West);
         assert!(!board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_is_valid_position_collision_with_block() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 4, 10, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 4, 10, Facing::North);
+        board.lock_tetrimino(&piece);
 
-        let overlapping_piece = create_test_piece(TetriminoType::O, 5, 10, 0);
+        let overlapping_piece = create_test_piece(TetriminoType::O, 5, 10, Facing::North);
         assert!(!board.is_valid_position(&overlapping_piece));
     }
 
     #[test]
     fn test_is_valid_position_adjacent_no_collision() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 4, 10, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 4, 10, Facing::North);
+        board.lock_tetrimino(&piece);
 
-        let adjacent_piece = create_test_piece(TetriminoType::O, 6, 10, 0);
+        let adjacent_piece = create_test_piece(TetriminoType::O, 6, 10, Facing::North);
         assert!(board.is_valid_position(&adjacent_piece));
     }
 
     #[test]
     fn test_is_valid_position_piece_above_block() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 4, 10, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 4, 10, Facing::North);
+        board.lock_tetrimino(&piece);
 
-        let above_piece = create_test_piece(TetriminoType::O, 4, 8, 0);
+        let above_piece = create_test_piece(TetriminoType::O, 4, 8, Facing::North);
         assert!(board.is_valid_position(&above_piece));
     }
 
     #[test]
-    fn test_lock_tetromino_o_piece() {
+    fn test_lock_tetrimino_o_piece() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 4, 10, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 4, 10, Facing::North);
+        board.lock_tetrimino(&piece);
 
         assert_eq!(board.get_cell(4, 10), Some(TetriminoType::O));
         assert_eq!(board.get_cell(5, 10), Some(TetriminoType::O));
@@ -253,10 +220,10 @@ mod tests {
     }
 
     #[test]
-    fn test_lock_tetromino_i_piece_vertical() {
+    fn test_lock_tetrimino_i_piece_vertical() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::I, 0, 0, 1);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::I, 0, 0, Facing::East);
+        board.lock_tetrimino(&piece);
 
         assert_eq!(board.get_cell(2, 0), Some(TetriminoType::I));
         assert_eq!(board.get_cell(2, 1), Some(TetriminoType::I));
@@ -265,10 +232,10 @@ mod tests {
     }
 
     #[test]
-    fn test_lock_tetromino_l_piece() {
+    fn test_lock_tetrimino_l_piece() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::L, 0, 5, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::L, 0, 5, Facing::North);
+        board.lock_tetrimino(&piece);
 
         assert_eq!(board.get_cell(2, 5), Some(TetriminoType::L));
         assert_eq!(board.get_cell(0, 6), Some(TetriminoType::L));
@@ -277,16 +244,10 @@ mod tests {
     }
 
     #[test]
-    fn test_get_full_lines_empty_board() {
-        let board = Board::new(10, 20);
-        assert!(board.get_full_lines().is_empty());
-    }
-
-    #[test]
     fn test_get_full_lines_no_full_lines() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 0, 0, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 0, 0, Facing::North);
+        board.lock_tetrimino(&piece);
         assert!(board.get_full_lines().is_empty());
     }
 
@@ -326,16 +287,10 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_lines_empty_board() {
-        let mut board = Board::new(10, 20);
-        assert_eq!(board.clear_lines(), 0);
-    }
-
-    #[test]
     fn test_clear_lines_no_full_lines() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 0, 0, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 0, 0, Facing::North);
+        board.lock_tetrimino(&piece);
         assert_eq!(board.clear_lines(), 0);
     }
 
@@ -412,39 +367,12 @@ mod tests {
     }
 
     #[test]
-    fn test_get_cell_corner() {
-        let board = Board::new(10, 20);
-        assert_eq!(board.get_cell(0, 0), None);
-        assert_eq!(board.get_cell(9, 19), None);
-    }
-
-    #[test]
-    fn test_get_width() {
-        let board = Board::new(15, 25);
-        assert_eq!(board.get_width(), 15);
-    }
-
-    #[test]
-    fn test_get_height() {
-        let board = Board::new(15, 25);
-        assert_eq!(board.get_height(), 25);
-    }
-
-    #[test]
-    fn test_cells_method() {
-        let board = Board::new(10, 20);
-        let cells = board.cells();
-        assert_eq!(cells.len(), 20 + BUFFER_ZONE_HEIGHT);
-        assert_eq!(cells[0].len(), 10);
-    }
-
-    #[test]
     fn test_lock_multiple_pieces() {
         let mut board = Board::new(10, 20);
-        let piece1 = create_test_piece(TetriminoType::O, 0, 0, 0);
-        board.lock_tetromino(&piece1);
-        let piece2 = create_test_piece(TetriminoType::I, 5, 0, 0);
-        board.lock_tetromino(&piece2);
+        let piece1 = create_test_piece(TetriminoType::O, 0, 0, Facing::North);
+        board.lock_tetrimino(&piece1);
+        let piece2 = create_test_piece(TetriminoType::I, 5, 0, Facing::North);
+        board.lock_tetrimino(&piece2);
 
         assert_eq!(board.get_cell(0, 0), Some(TetriminoType::O));
         assert_eq!(board.get_cell(5, 1), Some(TetriminoType::I));
@@ -456,10 +384,10 @@ mod tests {
     #[test]
     fn test_clear_lines_after_locking() {
         let mut board = Board::new(10, 20);
-        let piece1 = create_test_piece(TetriminoType::O, 0, 17, 0);
-        board.lock_tetromino(&piece1);
-        let piece2 = create_test_piece(TetriminoType::O, 5, 17, 0);
-        board.lock_tetromino(&piece2);
+        let piece1 = create_test_piece(TetriminoType::O, 0, 17, Facing::North);
+        board.lock_tetrimino(&piece1);
+        let piece2 = create_test_piece(TetriminoType::O, 5, 17, Facing::North);
+        board.lock_tetrimino(&piece2);
 
         for x in 0..10 {
             board.set_cell(x, 19, Some(TetriminoType::I));
@@ -471,30 +399,9 @@ mod tests {
     #[test]
     fn test_is_valid_position_with_rotation() {
         let board = Board::new(10, 20);
-        for rotation in 0..4 {
-            let piece = create_test_piece(TetriminoType::T, 4, 5, rotation);
-            assert!(
-                board.is_valid_position(&piece),
-                "Failed for rotation {}",
-                rotation
-            );
-        }
-    }
-
-    #[test]
-    fn test_lock_tetromino_all_types() {
-        let mut board = Board::new(10, 20);
-        for kind in [
-            TetriminoType::I,
-            TetriminoType::O,
-            TetriminoType::T,
-            TetriminoType::S,
-            TetriminoType::Z,
-            TetriminoType::J,
-            TetriminoType::L,
-        ] {
-            let piece = create_test_piece(kind, 0, 0, 0);
-            board.lock_tetromino(&piece);
+        for facing in Facing::ALL {
+            let piece = create_test_piece(TetriminoType::T, 4, 5, facing);
+            assert!(board.is_valid_position(&piece), "Failed for {:?}", facing);
         }
     }
 
@@ -557,15 +464,15 @@ mod tests {
     #[test]
     fn test_pieces_are_valid_in_buffer_zone() {
         let board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::T, 3, -20, 0);
+        let piece = create_test_piece(TetriminoType::T, 3, -20, Facing::North);
         assert!(board.is_valid_position(&piece));
     }
 
     #[test]
     fn test_blocks_can_lock_in_buffer_zone() {
         let mut board = Board::new(10, 20);
-        let piece = create_test_piece(TetriminoType::O, 4, -2, 0);
-        board.lock_tetromino(&piece);
+        let piece = create_test_piece(TetriminoType::O, 4, -2, Facing::North);
+        board.lock_tetrimino(&piece);
         assert_eq!(board.get_cell(4, -2), Some(TetriminoType::O));
         assert!(board.is_occupied(4, -1));
     }

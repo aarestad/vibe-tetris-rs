@@ -114,6 +114,39 @@ mod tests {
         }
     }
 
+    /// Requires the theme to be in the binary where a build is meant to have one, such as CI.
+    #[test]
+    fn test_embedded_theme_exists_when_required() {
+        if std::env::var_os("REQUIRE_EMBEDDED_THEME").is_some() {
+            assert!(!THEME.is_empty(), "the build did not embed any music");
+        }
+    }
+
+    /// Plays through a real sound device at zero volume, so it stays silent. Machines with no
+    /// sound device have nothing to test.
+    #[test]
+    fn test_music_pauses_and_resumes_on_a_real_device() {
+        let Ok(mut player) = AudioPlayer::try_new() else {
+            return;
+        };
+        if THEME.is_empty() {
+            return;
+        }
+        player.set_volume(0.0);
+        player.play_background_music(THEME);
+
+        let sink = player.sink.as_ref().unwrap();
+        assert!(!sink.is_paused());
+        assert!(!sink.empty());
+
+        player.pause();
+        assert!(player.sink.as_ref().unwrap().is_paused());
+        player.resume();
+        assert!(!player.sink.as_ref().unwrap().is_paused());
+        player.stop();
+        assert!(player.take_warnings().is_empty());
+    }
+
     #[test]
     fn test_no_sound_player_ignores_all_commands() {
         let mut player = AudioPlayer::no_sound();

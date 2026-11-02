@@ -27,8 +27,8 @@ Rotation.
 - `cargo test -- --nocapture` - Run tests with stdout output
 
 ### Continuous Integration
-- `.github/workflows/ci.yml` runs on every push: `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test` on Linux and macOS
-- CI builds without `timidity`, so it has no music and skips the check that the embedded theme decodes
+- `.github/workflows/ci.yml` runs on every push and on pull requests from forks: `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test` on Linux and macOS
+- The Linux test job installs `timidity` and sets `REQUIRE_EMBEDDED_THEME`, so a build that loses the music fails
 
 ### Development Workflow
 - Always run `cargo check` after making changes to ensure compilation
@@ -120,7 +120,8 @@ Rotation.
 build.rs             # Build script to transform MIDI to WAV; requires timidity for music
 tests/
 ├── end_to_end.rs    # Runs the real binary in a pseudo-terminal and reads its screen
-└── random_play.rs   # Random input games that check the rules always hold
+├── random_play.rs   # Random input games that check the rules always hold
+└── skilled_play.rs  # A bot plays whole Marathons through real key events
 src/
 ├── main.rs          # Entry point and application setup
 ├── lib.rs           # Module declarations
