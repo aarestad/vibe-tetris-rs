@@ -26,6 +26,10 @@ Rotation.
 - `cargo test <test_name>` - Run a specific test
 - `cargo test -- --nocapture` - Run tests with stdout output
 
+### Continuous Integration
+- `.github/workflows/ci.yml` runs on every push: `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test` on Linux and macOS
+- CI builds without `timidity`, so it has no music and skips the check that the embedded theme decodes
+
 ### Development Workflow
 - Always run `cargo check` after making changes to ensure compilation
 - Run `cargo clippy` before committing to catch potential issues
