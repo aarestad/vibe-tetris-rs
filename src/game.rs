@@ -1,8 +1,7 @@
 use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
-use crate::game_state::GameState;
-use crate::input::{AutoRepeat, InputAction, InputEvent, InputHandler};
-use crate::screen::Screen;
+use crate::input::InputHandler;
+use crate::session::{MusicChange, Session};
 use crate::ui::Renderer;
 use anyhow::Result;
 use crossterm::{
@@ -21,15 +20,13 @@ const FRAME_DURATION: Duration = Duration::from_millis(16);
 /// Keys pressed this soon after Game Over do not dismiss the screen.
 const GAME_OVER_KEY_GUARD: Duration = Duration::from_millis(500);
 
+/// Connects a `Session` to the real terminal and sound device. All game behavior is in
+/// `Session`, so this only moves input, time and drawing between them.
 pub struct Game {
-    state: GameState,
-    screen: Screen,
+    session: Session,
     renderer: Renderer,
     input: InputHandler,
     audio: AudioPlayer,
-    auto_repeat: AutoRepeat,
-    /// True when the terminal reports key releases, which continuous input needs.
-    key_release_events: bool,
 }
 
 impl Game {
@@ -40,27 +37,19 @@ impl Game {
         } else {
             AudioPlayer::no_sound()
         };
-        let auto_repeat = AutoRepeat::new(
-            Duration::from_millis(config.das_delay),
-            Duration::from_millis(config.das_repeat),
-        );
-        let state = GameState::new(config);
-        let input = InputHandler::new();
 
         Ok(Self {
-            state,
-            screen: Screen::default(),
+            session: Session::new(config),
             renderer,
-            input,
+            input: InputHandler::new(),
             audio,
-            auto_repeat,
-            key_release_events: false,
         })
     }
 
     pub fn run(&mut self) -> Result<()> {
         let terminal_guard = TerminalGuard::new()?;
-        self.key_release_events = terminal_guard.keyboard_enhanced;
+        self.session
+            .set_key_release_events(terminal_guard.keyboard_enhanced);
 
         self.start_music();
 
@@ -72,16 +61,13 @@ impl Game {
             last_tick = frame_start;
 
             self.handle_pending_input();
+            self.session.update(dt);
+            self.renderer
+                .render(self.session.state(), self.session.screen())?;
 
-            if self.screen.is_playing() {
-                self.apply_auto_repeat(dt);
-                self.state.tick(dt);
-            }
-            self.renderer.render(&self.state, self.screen)?;
-
-            if self.state.is_game_over() {
+            if self.session.state().is_game_over() {
                 self.audio.stop();
-                self.renderer.render_game_over(&self.state)?;
+                self.renderer.render_game_over(self.session.state())?;
                 stdout().flush()?;
                 self.input.wait_for_key_press(GAME_OVER_KEY_GUARD)?;
                 break;
@@ -106,79 +92,14 @@ impl Game {
         self.audio.set_volume(0.5);
     }
 
-    /// Handles all input waiting this frame.
+    /// Passes all input waiting this frame to the session.
     fn handle_pending_input(&mut self) {
         while let Some(input) = self.input.poll_input() {
-            match input {
-                InputEvent::Pressed(action) => self.handle_press(action),
-                InputEvent::Released(action) => self.handle_release(action),
+            match self.session.handle_input(input) {
+                Some(MusicChange::Pause) => self.audio.pause(),
+                Some(MusicChange::Resume) => self.audio.resume(),
+                None => {}
             }
-        }
-    }
-
-    fn apply_auto_repeat(&mut self, dt: Duration) {
-        let (direction, moves) = self.auto_repeat.update(dt);
-        for _ in 0..moves {
-            self.state.shift_piece(direction);
-        }
-    }
-
-    fn handle_press(&mut self, action: InputAction) {
-        if action == InputAction::Quit {
-            self.state.quit();
-        } else if let Some(screen) = self.screen.after_press(action) {
-            self.switch_screen(screen);
-        } else if self.screen.is_playing() {
-            self.handle_play_press(action);
-        }
-    }
-
-    fn handle_play_press(&mut self, action: InputAction) {
-        match action {
-            InputAction::MoveLeft => self.press_direction(-1),
-            InputAction::MoveRight => self.press_direction(1),
-            InputAction::MoveDown => {
-                if self.key_release_events {
-                    self.state.set_soft_drop(true);
-                } else {
-                    self.state.soft_drop_step();
-                }
-            }
-            InputAction::HardDrop => self.state.hard_drop(),
-            InputAction::RotateClockwise => {
-                self.state.rotate_piece(true);
-            }
-            InputAction::RotateCounterClockwise => {
-                self.state.rotate_piece(false);
-            }
-            InputAction::Hold => self.state.hold_piece(),
-            // Handled by `handle_press` before play keys are reached.
-            InputAction::Pause | InputAction::ToggleHelp | InputAction::Quit => {}
-        }
-    }
-
-    fn switch_screen(&mut self, screen: Screen) {
-        match (self.screen, screen) {
-            (_, Screen::Paused) => self.audio.pause(),
-            (Screen::Paused, _) => self.audio.resume(),
-            _ => {}
-        }
-        self.screen = screen;
-    }
-
-    fn press_direction(&mut self, direction: i32) {
-        self.state.shift_piece(direction);
-        if self.key_release_events {
-            self.auto_repeat.press(direction);
-        }
-    }
-
-    fn handle_release(&mut self, action: InputAction) {
-        match action {
-            InputAction::MoveLeft => self.auto_repeat.release(-1),
-            InputAction::MoveRight => self.auto_repeat.release(1),
-            InputAction::MoveDown => self.state.set_soft_drop(false),
-            _ => {}
         }
     }
 }

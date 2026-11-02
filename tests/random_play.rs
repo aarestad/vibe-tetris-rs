@@ -2,7 +2,20 @@
 
 use std::time::Duration;
 use tetris_rs::config::{GameConfig, LockDownMode};
-use tetris_rs::game_state::GameState;
+use tetris_rs::input::{InputAction, InputEvent};
+use tetris_rs::session::Session;
+
+const ACTIONS: [InputAction; 9] = [
+    InputAction::MoveLeft,
+    InputAction::MoveRight,
+    InputAction::MoveDown,
+    InputAction::RotateClockwise,
+    InputAction::RotateCounterClockwise,
+    InputAction::HardDrop,
+    InputAction::Hold,
+    InputAction::Pause,
+    InputAction::ToggleHelp,
+];
 
 /// Small fixed-seed generator, so that a failure can be repeated.
 struct Lcg(u64);
@@ -17,37 +30,38 @@ impl Lcg {
     }
 }
 
-fn play(config: GameConfig, seed: u64) {
+fn random_input(random: &mut Lcg) -> Option<InputEvent> {
+    // Most frames have no input, as in real play.
+    if random.next(3) != 0 {
+        return None;
+    }
+    let action = ACTIONS[random.next(ACTIONS.len() as u64) as usize];
+    Some(if random.next(2) == 0 {
+        InputEvent::Pressed(action)
+    } else {
+        InputEvent::Released(action)
+    })
+}
+
+fn play(config: GameConfig, key_release_events: bool, seed: u64) {
     let mut random = Lcg(seed);
-    let mut state = GameState::new(config);
+    let mut session = Session::new(config);
+    session.set_key_release_events(key_release_events);
 
     for _ in 0..20_000 {
-        match random.next(12) {
-            0 => {
-                state.shift_piece(-1);
-            }
-            1 => {
-                state.shift_piece(1);
-            }
-            2 => {
-                state.rotate_piece(true);
-            }
-            3 => {
-                state.rotate_piece(false);
-            }
-            4 => state.hold_piece(),
-            5 => state.hard_drop(),
-            6 => {
-                state.soft_drop_step();
-            }
-            7 => state.set_soft_drop(random.next(2) == 0),
-            _ => {}
+        if let Some(input) = random_input(&mut random) {
+            session.handle_input(input);
         }
 
-        let score_before = state.scoring.score;
-        state.tick(Duration::from_millis(random.next(40)));
-        assert!(state.scoring.score >= score_before);
+        let score_before = session.state().scoring.score;
+        let elapsed_before = session.state().elapsed;
+        session.update(Duration::from_millis(random.next(40)));
 
+        let state = session.state();
+        assert!(state.scoring.score >= score_before);
+        if !session.screen().is_playing() {
+            assert_eq!(state.elapsed, elapsed_before);
+        }
         if let Some(piece) = state.current_piece()
             && !state.is_game_over()
         {
@@ -80,7 +94,8 @@ fn test_random_play_keeps_rules_in_every_mode() {
                     preview_count: (seed % 6 + 1) as usize,
                     ..GameConfig::default()
                 };
-                play(config, seed);
+                play(config.clone(), false, seed);
+                play(config, true, seed);
             }
         }
     }

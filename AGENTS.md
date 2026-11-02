@@ -87,7 +87,8 @@ Rotation.
 - Game loop: target 60 FPS with frame rate limiting
 - Input handling: use enums for different action types
 - State management: separate game state from rendering logic
-- Screens: `Game` owns a `Screen`, and `GameState` only advances while it is `Playing`
+- Screens: `Session` owns a `Screen`, and `GameState` only advances while it is `Playing`
+- Game loop: put behavior in `Session`, where tests can feed it input and time; `Game` only does I/O
 - Game phases: `Phase` holds the Tetrimino in play and the Line Clear, so add new states as variants instead of flags
 
 ### Testing Strategy
@@ -95,6 +96,7 @@ Rotation.
 - Integration tests for game flow in `tests/` directory
 - Render tests with ratatui's `TestBackend`, in `ui.rs`
 - Time passes only through `GameState::tick`, so timing rules can be tested without waiting
+- End-to-end tests wait for a condition instead of a fixed time wherever they can, and always turn sound off
 
 ### Documentation Requirements
 - All public APIs must have doc comments
@@ -113,15 +115,17 @@ Rotation.
 ```
 build.rs             # Build script to transform MIDI to WAV; requires timidity for music
 tests/
+├── end_to_end.rs    # Runs the real binary in a pseudo-terminal and reads its screen
 └── random_play.rs   # Random input games that check the rules always hold
 src/
 ├── main.rs          # Entry point and application setup
 ├── lib.rs           # Module declarations
 ├── audio.rs         # Audio handling
-├── game.rs          # Main game loop and input handling
+├── game.rs          # Connects a session to the real terminal and sound device
 ├── game_state.rs    # Phases, movement, Lock Down, Hold and T-Spin recognition
 ├── scoring.rs       # Score, Back-to-Back, level and Goal
 ├── screen.rs        # Playing, Paused and Help screens and the keys that switch them
+├── session.rs       # Input and time handling for one game, with no terminal or sound
 ├── board.rs         # Game board and collision detection
 ├── tetrimino.rs     # Tetrimino definitions and rotations
 ├── input.rs         # Keyboard input processing

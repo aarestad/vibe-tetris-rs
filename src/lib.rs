@@ -6,5 +6,6 @@ pub mod game_state;
 pub mod input;
 pub mod scoring;
 pub mod screen;
+pub mod session;
 pub mod tetrimino;
 pub mod ui;
