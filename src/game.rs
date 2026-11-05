@@ -1,6 +1,7 @@
 use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
 use crate::input::InputHandler;
+use crate::menu::{Menu, MenuResult};
 use crate::session::{MusicChange, Session};
 use crate::ui::Renderer;
 use anyhow::Result;
@@ -20,10 +21,11 @@ const FRAME_DURATION: Duration = Duration::from_millis(16);
 /// Keys pressed this soon after Game Over do not dismiss the screen.
 const GAME_OVER_KEY_GUARD: Duration = Duration::from_millis(500);
 
-/// Connects a `Session` to the real terminal and sound device. All game behavior is in
-/// `Session`, so this only moves input, time and drawing between them.
+/// Connects the menu and each game's `Session` to the real terminal and sound device. All game
+/// behavior is in those types, so this only moves input, time and drawing between them.
 pub struct Game {
-    session: Session,
+    config: GameConfig,
+    menu: Menu,
     renderer: Renderer,
     input: InputHandler,
     audio: AudioPlayer,
@@ -39,41 +41,23 @@ impl Game {
         };
 
         Ok(Self {
-            session: Session::new(config),
+            menu: Menu::new(&config),
+            config,
             renderer,
             input: InputHandler::new(),
             audio,
         })
     }
 
+    /// Runs the Main Menu and the games started from it until the player exits.
     pub fn run(&mut self) -> Result<()> {
         let terminal_guard = TerminalGuard::new()?;
-        self.session
-            .set_key_release_events(terminal_guard.keyboard_enhanced);
 
-        self.start_music();
-
-        let mut last_tick = Instant::now();
-
-        loop {
-            let frame_start = Instant::now();
-            let dt = frame_start.duration_since(last_tick);
-            last_tick = frame_start;
-
-            self.handle_pending_input();
-            self.session.update(dt);
-            self.renderer
-                .render(self.session.state(), self.session.screen())?;
-
-            if self.session.state().is_game_over() {
-                self.audio.stop();
-                self.renderer.render_game_over(self.session.state())?;
-                stdout().flush()?;
-                self.input.wait_for_key_press(GAME_OVER_KEY_GUARD)?;
+        while self.run_menu()? {
+            let wants_to_leave = self.play_game(terminal_guard.keyboard_enhanced)?;
+            if wants_to_leave {
                 break;
             }
-
-            std::thread::sleep(FRAME_DURATION.saturating_sub(frame_start.elapsed()));
         }
 
         Ok(())
@@ -84,18 +68,63 @@ impl Game {
         self.audio.take_warnings()
     }
 
+    /// Shows the menu until the player chooses. Returns true to start a game, false to exit.
+    fn run_menu(&mut self) -> Result<bool> {
+        loop {
+            while let Some(input) = self.input.poll_menu_input() {
+                match self.menu.handle_input(input) {
+                    MenuResult::Stay => {}
+                    MenuResult::StartGame => return Ok(true),
+                    MenuResult::Exit => return Ok(false),
+                }
+            }
+            self.renderer.render_menu(&self.menu)?;
+            std::thread::sleep(FRAME_DURATION);
+        }
+    }
+
+    /// Plays one game through its Game Over screen. Returns true if the player wants to leave
+    /// the program instead of going back to the menu.
+    fn play_game(&mut self, key_release_events: bool) -> Result<bool> {
+        let mut session = Session::new(self.menu.game_config(&self.config));
+        session.set_key_release_events(key_release_events);
+
+        self.start_music();
+
+        let mut last_tick = Instant::now();
+
+        loop {
+            let frame_start = Instant::now();
+            let dt = frame_start.duration_since(last_tick);
+            last_tick = frame_start;
+
+            self.handle_pending_input(&mut session);
+            session.update(dt);
+            self.renderer.render(session.state(), session.screen())?;
+
+            if session.state().is_game_over() {
+                self.audio.stop();
+                self.renderer.render_game_over(session.state())?;
+                stdout().flush()?;
+                return self.input.wait_for_key_press(GAME_OVER_KEY_GUARD);
+            }
+
+            std::thread::sleep(FRAME_DURATION.saturating_sub(frame_start.elapsed()));
+        }
+    }
+
     fn start_music(&mut self) {
         if THEME.is_empty() {
             return;
         }
-        self.audio.play_background_music(THEME);
         self.audio.set_volume(0.5);
+        self.audio.play_background_music(THEME);
     }
 
     /// Passes all input waiting this frame to the session.
-    fn handle_pending_input(&mut self) {
+    fn handle_pending_input(&mut self, session: &mut Session) {
         while let Some(input) = self.input.poll_input() {
-            match self.session.handle_input(input) {
+            match session.handle_input(input) {
                 Some(MusicChange::Pause) => self.audio.pause(),
                 Some(MusicChange::Resume) => self.audio.resume(),
                 None => {}

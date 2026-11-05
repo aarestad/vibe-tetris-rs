@@ -7,6 +7,9 @@ Vibe-coded Tetris CLI implementation. Caveat lector!
 Background music is converted at build time and needs `timidity`; without it, the game builds
 with no music.
 
+The game opens on the Main Menu, where you can start a game, choose the starting level and goal
+system, read the controls or quit. After Game Over, any key returns to the menu.
+
 ## Controls
 
 | Action | Keys |
@@ -20,6 +23,8 @@ with no music.
 | Pause | Esc, F1, P |
 | Help | H |
 | Quit | Q, Ctrl+C |
+
+In the menu, use the arrow keys, Enter or Space to choose, Esc to go back, and Q or Ctrl+C to quit.
 
 Numpad keys are read as digits, so the number row does the same thing.
 

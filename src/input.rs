@@ -1,3 +1,4 @@
+use crate::menu::MenuInput;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::{Duration, Instant};
@@ -47,27 +48,45 @@ impl InputHandler {
         None
     }
 
+    /// Returns the next menu input, skipping events that map to nothing. Does not block.
+    pub fn poll_menu_input(&self) -> Option<MenuInput> {
+        while let Ok(true) = event::poll(Duration::ZERO) {
+            match event::read() {
+                Ok(Event::Key(key)) => {
+                    if let Some(input) = key_to_menu_input(key) {
+                        return Some(input);
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
     /// Blocks until a key is pressed, ignoring keys pressed during the first `ignore_for`.
     /// The ignored period stops a key held during play from dismissing a screen at once.
-    pub fn wait_for_key_press(&self, ignore_for: Duration) -> Result<()> {
+    /// Returns true for Ctrl+C, which counts at once and means the player wants to leave.
+    pub fn wait_for_key_press(&self, ignore_for: Duration) -> Result<bool> {
         let start = Instant::now();
         loop {
             if let Event::Key(key) = event::read()?
                 && key.kind == KeyEventKind::Press
-                && start.elapsed() >= ignore_for
             {
-                return Ok(());
+                if is_ctrl_c(key) {
+                    return Ok(true);
+                }
+                if start.elapsed() >= ignore_for {
+                    return Ok(false);
+                }
             }
         }
     }
 
     fn key_to_event(&self, key: KeyEvent) -> Option<InputEvent> {
+        // Raw mode delivers Ctrl+C as a key, and it must not act as Hold.
         let action = if key.modifiers.contains(KeyModifiers::CONTROL) {
-            // Raw mode delivers Ctrl+C as a key, and it must not act as Hold.
-            match key.code {
-                KeyCode::Char('c') | KeyCode::Char('C') => Some(InputAction::Quit),
-                _ => None,
-            }
+            is_ctrl_c(key).then_some(InputAction::Quit)
         } else {
             self.key_to_action(key.code)
         }?;
@@ -103,6 +122,31 @@ impl InputHandler {
             },
             _ => None,
         }
+    }
+}
+
+fn is_ctrl_c(key: KeyEvent) -> bool {
+    key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C'))
+}
+
+/// Menu keys, kept apart from play keys so that X or a digit does not move the selection.
+fn key_to_menu_input(key: KeyEvent) -> Option<MenuInput> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return is_ctrl_c(key).then_some(MenuInput::Quit);
+    }
+    match key.code {
+        KeyCode::Up => Some(MenuInput::Up),
+        KeyCode::Down => Some(MenuInput::Down),
+        KeyCode::Left => Some(MenuInput::Left),
+        KeyCode::Right => Some(MenuInput::Right),
+        KeyCode::Enter | KeyCode::Char(' ') => Some(MenuInput::Select),
+        KeyCode::Esc => Some(MenuInput::Back),
+        KeyCode::Char('q') | KeyCode::Char('Q') => Some(MenuInput::Quit),
+        _ => None,
     }
 }
 
@@ -278,6 +322,48 @@ mod tests {
             KeyEventKind::Press,
         );
         assert_eq!(handler.key_to_event(event), None);
+    }
+
+    #[test]
+    fn test_menu_keys() {
+        let press = |code| key(code, KeyModifiers::NONE, KeyEventKind::Press);
+        let cases = [
+            (KeyCode::Up, MenuInput::Up),
+            (KeyCode::Down, MenuInput::Down),
+            (KeyCode::Left, MenuInput::Left),
+            (KeyCode::Right, MenuInput::Right),
+            (KeyCode::Enter, MenuInput::Select),
+            (KeyCode::Char(' '), MenuInput::Select),
+            (KeyCode::Esc, MenuInput::Back),
+            (KeyCode::Char('q'), MenuInput::Quit),
+            (KeyCode::Char('Q'), MenuInput::Quit),
+        ];
+        for (code, input) in cases {
+            assert_eq!(key_to_menu_input(press(code)), Some(input), "{code:?}");
+        }
+    }
+
+    #[test]
+    fn test_play_keys_do_nothing_in_the_menu() {
+        let press = |code| key(code, KeyModifiers::NONE, KeyEventKind::Press);
+        for c in ['x', 'z', 'c', 'h', 'p', '2', '8'] {
+            assert_eq!(key_to_menu_input(press(KeyCode::Char(c))), None, "{c}");
+        }
+    }
+
+    #[test]
+    fn test_menu_ignores_releases_and_repeats() {
+        for kind in [KeyEventKind::Release, KeyEventKind::Repeat] {
+            let event = key(KeyCode::Enter, KeyModifiers::NONE, kind);
+            assert_eq!(key_to_menu_input(event), None);
+        }
+    }
+
+    #[test]
+    fn test_ctrl_c_quits_the_menu_and_other_ctrl_keys_do_nothing() {
+        let ctrl = |c| key(KeyCode::Char(c), KeyModifiers::CONTROL, KeyEventKind::Press);
+        assert_eq!(key_to_menu_input(ctrl('c')), Some(MenuInput::Quit));
+        assert_eq!(key_to_menu_input(ctrl('q')), None);
     }
 
     #[test]

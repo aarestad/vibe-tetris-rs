@@ -8,17 +8,18 @@ use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
 pub const THEME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tetris_theme.wav"));
 
 pub struct AudioPlayer {
-    // Held only to keep the sound device open while the sink plays.
-    _stream: Option<OutputStream>,
+    stream: Option<OutputStream>,
     sink: Option<Sink>,
+    volume: f32,
     warnings: Vec<String>,
 }
 
 impl AudioPlayer {
     pub fn no_sound() -> Self {
         Self {
-            _stream: None,
+            stream: None,
             sink: None,
+            volume: 1.0,
             warnings: Vec::new(),
         }
     }
@@ -38,22 +39,27 @@ impl AudioPlayer {
         let mut stream = OutputStreamBuilder::open_default_stream()?;
         // The default drop message would print over the terminal on exit.
         stream.log_on_drop(false);
-        let sink = Sink::connect_new(stream.mixer());
-
         Ok(Self {
-            _stream: Some(stream),
-            sink: Some(sink),
+            stream: Some(stream),
+            sink: None,
+            volume: 1.0,
             warnings: Vec::new(),
         })
     }
 
-    /// Loops the given WAV data until stopped.
+    /// Loops the given WAV data until stopped, replacing anything already playing, so each
+    /// game can start the music from the beginning.
     pub fn play_background_music(&mut self, wav: &'static [u8]) {
-        let Some(sink) = &self.sink else {
+        let Some(stream) = &self.stream else {
             return;
         };
         match Decoder::new(Cursor::new(wav)) {
-            Ok(source) => sink.append(source.repeat_infinite()),
+            Ok(source) => {
+                let sink = Sink::connect_new(stream.mixer());
+                sink.set_volume(self.volume);
+                sink.append(source.repeat_infinite());
+                self.sink = Some(sink);
+            }
             Err(e) => self
                 .warnings
                 .push(format!("Failed to decode background music: {e}.")),
@@ -84,9 +90,11 @@ impl AudioPlayer {
         }
     }
 
+    /// Sets the volume for the music now playing and for any started later.
     pub fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.clamp(0.0, 1.0);
         if let Some(sink) = &self.sink {
-            sink.set_volume(volume.clamp(0.0, 1.0));
+            sink.set_volume(self.volume);
         }
     }
 }
@@ -145,6 +153,29 @@ mod tests {
         assert!(!player.sink.as_ref().unwrap().is_paused());
         player.stop();
         assert!(player.take_warnings().is_empty());
+    }
+
+    /// A new game must be able to start the music again after the last one stopped it.
+    #[test]
+    fn test_music_restarts_after_stop_at_the_same_volume() {
+        let Ok(mut player) = AudioPlayer::try_new() else {
+            return;
+        };
+        if THEME.is_empty() {
+            return;
+        }
+        player.set_volume(0.0);
+        player.play_background_music(THEME);
+        player.stop();
+
+        player.play_background_music(THEME);
+        // A stopped sink can report queued sound for a moment, so give it time to drain.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let sink = player.sink.as_ref().unwrap();
+        assert!(!sink.empty());
+        assert!(!sink.is_paused());
+        assert_eq!(sink.volume(), 0.0);
     }
 
     #[test]

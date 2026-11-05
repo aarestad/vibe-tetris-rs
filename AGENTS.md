@@ -134,6 +134,7 @@ src/
 ├── board.rs         # Game board and collision detection
 ├── tetrimino.rs     # Tetrimino definitions and rotations
 ├── input.rs         # Keyboard input processing
+├── menu.rs          # Main Menu choices, with no terminal
 ├── ui.rs            # Terminal rendering and display
 └── config.rs        # Game configuration and file I/O
 ```

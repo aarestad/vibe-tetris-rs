@@ -1,4 +1,5 @@
 use crate::game_state::{GameOutcome, GameState};
+use crate::menu::{Menu, MenuItem};
 use crate::screen::Screen;
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
@@ -19,6 +20,11 @@ const BUFFER_ROWS_SHOWN: i32 = 2;
 const CELL_WIDTH: usize = 2;
 const LABEL_COLOR: Color = Color::Cyan;
 const PROGRESS_BAR_WIDTH: usize = 12;
+/// Width of the boxes drawn over the screen.
+const BOX_WIDTH: u16 = 30;
+/// Smallest terminal that fits the taller of the menu's two pages, which is the controls list.
+const MENU_MIN_WIDTH: u16 = BOX_WIDTH;
+const MENU_MIN_HEIGHT: u16 = 13;
 
 pub struct Renderer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -47,6 +53,61 @@ impl Renderer {
                 Self::draw_help_overlay(f, state);
             }
         }
+    }
+
+    /// Draws the Main Menu or its help page.
+    pub fn render_menu(&mut self, menu: &Menu) -> Result<()> {
+        self.terminal.draw(|f| Self::draw_menu(f, menu))?;
+        Ok(())
+    }
+
+    fn draw_menu(f: &mut Frame, menu: &Menu) {
+        if f.area().width < MENU_MIN_WIDTH || f.area().height < MENU_MIN_HEIGHT {
+            Self::draw_size_message(f, MENU_MIN_WIDTH, MENU_MIN_HEIGHT);
+        } else if menu.showing_help() {
+            let lines = Self::controls_lines("Esc to go back");
+            Self::draw_centered_box(f, " CONTROLS ", lines, Alignment::Left);
+        } else {
+            Self::draw_centered_box(f, " TETRIS ", Self::menu_lines(menu), Alignment::Left);
+        }
+    }
+
+    fn menu_lines(menu: &Menu) -> Vec<Line<'static>> {
+        let mut lines: Vec<Line> = MenuItem::ALL
+            .into_iter()
+            .map(|item| {
+                let text = match item {
+                    MenuItem::NewGame => "New Game".to_string(),
+                    MenuItem::StartingLevel => {
+                        format!("Starting Level: < {} >", menu.starting_level())
+                    }
+                    MenuItem::GoalSystem => {
+                        let goal = if menu.variable_goal() {
+                            "Variable"
+                        } else {
+                            "Fixed"
+                        };
+                        format!("Goal: < {goal} >")
+                    }
+                    MenuItem::Help => "Help".to_string(),
+                    MenuItem::Quit => "Quit".to_string(),
+                };
+                if item == menu.selected_item() {
+                    Line::styled(
+                        format!("> {text}"),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Line::from(format!("  {text}"))
+                }
+            })
+            .collect();
+        lines.push(Line::from(""));
+        lines.push(Line::from("↑ ↓ move   ← → change"));
+        lines.push(Line::from("Enter to choose"));
+        lines
     }
 
     /// Size of the playing field, side panels included.
@@ -99,6 +160,10 @@ impl Renderer {
 
     fn draw_too_small(f: &mut Frame, state: &GameState) {
         let (width, height) = Self::required_size(state);
+        Self::draw_size_message(f, width, height);
+    }
+
+    fn draw_size_message(f: &mut Frame, width: u16, height: u16) {
         let message = Paragraph::new(vec![
             Line::from("Terminal too small"),
             Line::from(format!("Need {width} x {height}")),
@@ -346,13 +411,18 @@ impl Renderer {
     }
 
     fn draw_help_overlay(f: &mut Frame, state: &GameState) {
+        let lines = Self::controls_lines("Press H to close");
+        Self::draw_box(f, state, " CONTROLS ", lines, Alignment::Left);
+    }
+
+    fn controls_lines(close_hint: &'static str) -> Vec<Line<'static>> {
         let key_line = |action: &'static str, keys: &'static str| {
             Line::from(vec![
                 Span::styled(action, Style::default().fg(Color::Yellow)),
                 Span::styled(keys, Style::default().fg(Color::White)),
             ])
         };
-        let lines = vec![
+        vec![
             key_line("Move:   ", "← →"),
             key_line("Drop:   ", "↓"),
             key_line("Hard:   ", "SPACE"),
@@ -363,9 +433,8 @@ impl Renderer {
             key_line("Help:   ", "H"),
             key_line("Quit:   ", "Q"),
             Line::from(""),
-            Line::from("Press H to close").alignment(Alignment::Center),
-        ];
-        Self::draw_box(f, state, " CONTROLS ", lines, Alignment::Left);
+            Line::from(close_hint).alignment(Alignment::Center),
+        ]
     }
 
     /// Hides play and shows "PAUSED" (Guideline 13.1.6).
@@ -392,7 +461,7 @@ impl Renderer {
             Line::from(format!("Final Score: {}", state.scoring.score)),
             Line::from(format!("Level Reached: {}", state.scoring.level)),
             Line::from(format!("Lines Cleared: {}", state.scoring.lines_cleared)),
-            Line::from("Press any key to exit"),
+            Line::from("Press any key"),
         ];
         Self::draw_box(f, state, title, lines, Alignment::Center);
     }
@@ -409,8 +478,13 @@ impl Renderer {
         if Self::play_area(f.area(), state).is_none() {
             return;
         }
+        Self::draw_centered_box(f, title, lines, alignment);
+    }
+
+    /// Draws a centered box. The caller must make sure the terminal is large enough.
+    fn draw_centered_box(f: &mut Frame, title: &str, lines: Vec<Line>, alignment: Alignment) {
         let height = lines.len() as u16 + 2;
-        let width = 30;
+        let width = BOX_WIDTH;
         let area = Rect {
             x: (f.area().width - width) / 2,
             y: (f.area().height - height) / 2,
@@ -434,6 +508,7 @@ mod tests {
     use super::*;
     use crate::config::GameConfig;
     use crate::game_state::Phase;
+    use crate::menu::MenuInput;
     use crate::tetrimino::Facing;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
@@ -636,6 +711,76 @@ mod tests {
             .map(|position| buffer[position].symbol().to_string())
             .collect();
         assert!(left_panel.contains("Tetris"));
+    }
+
+    fn menu() -> Menu {
+        Menu::new(&GameConfig::default())
+    }
+
+    #[test]
+    fn test_menu_lists_all_items_and_marks_the_selected_one() {
+        let mut menu = menu();
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        for label in [
+            "TETRIS",
+            "> New Game",
+            "Starting Level: < 1 >",
+            "Goal: < Fixed >",
+        ] {
+            assert!(screen.contains(label), "{label}:\n{screen}");
+        }
+        assert!(screen.contains("  Help") && screen.contains("  Quit"));
+
+        menu.handle_input(MenuInput::Down);
+        menu.handle_input(MenuInput::Right);
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        assert!(screen.contains("> Starting Level: < 2 >"));
+        assert!(!screen.contains("> New Game"));
+    }
+
+    #[test]
+    fn test_longest_menu_values_fit_in_the_box() {
+        let mut menu = menu();
+        menu.handle_input(MenuInput::Down);
+        menu.handle_input(MenuInput::Left);
+        menu.handle_input(MenuInput::Down);
+        menu.handle_input(MenuInput::Right);
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        assert!(screen.contains("Starting Level: < 15 >"));
+        assert!(screen.contains("> Goal: < Variable >"));
+    }
+
+    #[test]
+    fn test_menu_help_page_shows_controls_and_how_to_leave() {
+        let mut menu = menu();
+        menu.handle_input(MenuInput::Up);
+        menu.handle_input(MenuInput::Up);
+        menu.handle_input(MenuInput::Select);
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        assert!(screen.contains("CONTROLS"));
+        assert!(screen.contains("Esc to go back"));
+        assert!(!screen.contains("New Game"));
+    }
+
+    #[test]
+    fn test_menu_fits_at_its_minimum_size_and_asks_for_more_below_it() {
+        let mut menu = menu();
+        let fits = |menu: &Menu| {
+            text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
+                Renderer::draw_menu(f, menu)
+            }))
+        };
+        assert!(fits(&menu).contains("Enter to choose"));
+        menu.handle_input(MenuInput::Up);
+        menu.handle_input(MenuInput::Up);
+        menu.handle_input(MenuInput::Select);
+        assert!(fits(&menu).contains("Esc to go back"));
+
+        let menu = self::menu();
+        for (width, height) in [(MENU_MIN_WIDTH - 1, 40), (80, MENU_MIN_HEIGHT - 1), (5, 2)] {
+            let screen = text(&draw(width, height, |f| Renderer::draw_menu(f, &menu)));
+            assert!(screen.contains("Term"), "{width}x{height}:\n{screen}");
+        }
     }
 
     #[test]

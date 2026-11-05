@@ -31,6 +31,10 @@ const SKYLINE_ROW: u16 = 5;
 const MATRIX_COLUMNS: u16 = 10;
 
 const CTRL_C: &str = "\x03";
+const ENTER: &str = "\r";
+const UP: &str = "\x1b[A";
+const DOWN: &str = "\x1b[B";
+const RIGHT: &str = "\x1b[C";
 const ESC_ENHANCED: &str = "\x1b[27u";
 const RIGHT_PRESS: &str = "\x1b[1;1:1C";
 const RIGHT_RELEASE: &str = "\x1b[1;1:3C";
@@ -77,11 +81,26 @@ struct Terminal {
 }
 
 impl Terminal {
+    /// Starts the program and begins a game from the Main Menu.
     fn start(key_releases: KeyReleases) -> Self {
         Self::start_with(SOUND_OFF, key_releases, WIDTH, HEIGHT)
     }
 
     fn start_with(config: &str, key_releases: KeyReleases, width: u16, height: u16) -> Self {
+        let terminal = Self::launch(config, key_releases, width, height);
+        terminal.wait_for_text("New Game");
+        terminal.send(ENTER);
+        terminal
+    }
+
+    /// Starts the program and leaves it on the Main Menu.
+    fn start_at_menu() -> Self {
+        let terminal = Self::launch(SOUND_OFF, KeyReleases::NotSupported, WIDTH, HEIGHT);
+        terminal.wait_for_text("New Game");
+        terminal
+    }
+
+    fn launch(config: &str, key_releases: KeyReleases, width: u16, height: u16) -> Self {
         let config_dir = ConfigDir::new(config);
         let pair = native_pty_system()
             .openpty(PtySize {
@@ -248,23 +267,42 @@ impl Terminal {
         self.field("SCORE").parse().unwrap_or(0)
     }
 
-    /// Quits through Game Over and returns the exit code once the game has really exited.
+    /// Quits through Game Over and the menu, and returns the exit code once the game has exited.
     fn quit_and_exit_code(&mut self, quit_key: &str) -> u32 {
         self.send(quit_key);
         self.wait_for_text("GAME OVER");
         self.exit_with_any_key()
     }
 
+    /// Leaves the Game Over screen for the menu, then quits from there.
     fn exit_with_any_key(&mut self) -> u32 {
+        self.go_to_menu();
+        self.send("q");
+        self.wait_for_exit()
+    }
+
+    fn go_to_menu(&self) {
         let start = Instant::now();
-        loop {
+        while !self.shows("New Game") {
             // Keys in the first moments of Game Over are ignored on purpose, so keep trying.
             self.send("x");
             thread::sleep(Duration::from_millis(100));
+            assert!(
+                start.elapsed() < TIMEOUT,
+                "no menu:\n{}",
+                self.screen_text()
+            );
+        }
+    }
+
+    fn wait_for_exit(&mut self) -> u32 {
+        let start = Instant::now();
+        loop {
             if let Some(status) = self.child.try_wait().unwrap() {
                 return status.exit_code();
             }
             assert!(start.elapsed() < TIMEOUT, "the game did not exit");
+            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -321,7 +359,155 @@ fn test_ctrl_c_quits_instead_of_holding() {
     let mut terminal = Terminal::start(KeyReleases::NotSupported);
     terminal.wait_for_piece();
 
-    assert_eq!(terminal.quit_and_exit_code(CTRL_C), 0);
+    terminal.send(CTRL_C);
+    terminal.wait_for_text("GAME OVER");
+    terminal.send(CTRL_C);
+    assert_eq!(terminal.wait_for_exit(), 0);
+}
+
+// --- Main Menu ---
+
+#[test]
+fn test_program_opens_on_the_main_menu_with_no_game_running() {
+    let terminal = Terminal::start_at_menu();
+    let text = terminal.screen_text();
+    for label in [
+        "TETRIS",
+        "> New Game",
+        "Starting Level: < 1 >",
+        "Goal: < Fixed >",
+        "Help",
+        "Quit",
+    ] {
+        assert!(text.contains(label), "missing {label}:\n{text}");
+    }
+    assert!(!text.contains("SCORE"));
+}
+
+#[test]
+fn test_starting_level_chosen_in_the_menu_reaches_the_game() {
+    let terminal = Terminal::start_at_menu();
+    terminal.send(DOWN);
+    terminal.send(RIGHT);
+    terminal.send(RIGHT);
+    terminal.wait_for_text("> Starting Level: < 3 >");
+
+    terminal.send(UP);
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    assert_eq!(terminal.field("LEVEL"), "3");
+    // Starting higher includes the levels skipped (Guideline 6).
+    terminal.wait_for_text("0/30");
+}
+
+#[test]
+fn test_goal_system_chosen_in_the_menu_reaches_the_game() {
+    let terminal = Terminal::start_at_menu();
+    terminal.send(DOWN);
+    terminal.send(DOWN);
+    terminal.send(RIGHT);
+    terminal.wait_for_text("> Goal: < Variable >");
+
+    terminal.send(UP);
+    terminal.send(UP);
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    // Variable Goal needs 5 x Level, not 10 lines (Guideline 6).
+    terminal.wait_for_text("0/5");
+}
+
+#[test]
+fn test_config_file_sets_the_menu_starting_choices() {
+    let terminal = Terminal::launch(
+        r#"{"enable_sound": false, "starting_level": 9, "enable_variable_goal": true}"#,
+        KeyReleases::NotSupported,
+        WIDTH,
+        HEIGHT,
+    );
+    terminal.wait_for_text("Starting Level: < 9 >");
+    terminal.wait_for_text("Goal: < Variable >");
+}
+
+#[test]
+fn test_menu_help_opens_and_goes_back() {
+    let terminal = Terminal::start_at_menu();
+    terminal.send(UP);
+    terminal.send(UP);
+    terminal.wait_for_text("> Help");
+    terminal.send(ENTER);
+    terminal.wait_for_text("CONTROLS");
+    terminal.wait_for_text("Esc to go back");
+
+    terminal.send("\x1b");
+    terminal.wait_for_text("> Help");
+    assert!(!terminal.shows("CONTROLS"));
+}
+
+#[test]
+fn test_quit_item_exits() {
+    let mut terminal = Terminal::start_at_menu();
+    terminal.send(UP);
+    terminal.wait_for_text("> Quit");
+    terminal.send(ENTER);
+    assert_eq!(terminal.wait_for_exit(), 0);
+}
+
+#[test]
+fn test_q_and_ctrl_c_exit_from_the_menu() {
+    for key in ["q", CTRL_C] {
+        let mut terminal = Terminal::start_at_menu();
+        terminal.send(key);
+        assert_eq!(terminal.wait_for_exit(), 0, "{key:?}");
+        assert!(terminal.raw_output_contains("\x1b[?1049l"));
+    }
+}
+
+#[test]
+fn test_game_over_returns_to_the_menu_and_a_second_game_starts_fresh() {
+    let mut terminal = Terminal::start(KeyReleases::NotSupported);
+    terminal.wait_for_piece();
+    terminal.send(" ");
+    terminal.wait_for("a score", |t| t.score() > 0);
+    terminal.send("q");
+    terminal.wait_for_text("GAME OVER");
+    terminal.go_to_menu();
+    terminal.wait_for("the game screen to go", |t| !t.shows("SCORE"));
+
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    assert_eq!(terminal.score(), 0);
+    assert_eq!(terminal.field("LINES"), "0");
+    assert_eq!(terminal.blocks().len(), 4, "the old stack should be gone");
+
+    assert_eq!(terminal.quit_and_exit_code("q"), 0);
+}
+
+#[test]
+fn test_menu_choices_last_into_the_next_game() {
+    let terminal = Terminal::start_at_menu();
+    terminal.send(DOWN);
+    terminal.send(RIGHT);
+    terminal.wait_for_text("< 2 >");
+    terminal.send(UP);
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    terminal.send("q");
+    terminal.wait_for_text("GAME OVER");
+    terminal.go_to_menu();
+    terminal.wait_for_text("Starting Level: < 2 >");
+}
+
+#[test]
+fn test_small_terminal_shows_a_message_at_the_menu_until_resized() {
+    let terminal = Terminal::launch(SOUND_OFF, KeyReleases::NotSupported, 20, 8);
+    terminal.wait_for_text("Terminal too small");
+
+    terminal.resize(WIDTH, HEIGHT);
+    terminal.wait_for_text("New Game");
+    terminal.wait_for("the message to go", |t| !t.shows("Terminal too small"));
 }
 
 #[test]
