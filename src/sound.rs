@@ -32,7 +32,8 @@ pub enum SoundEffect {
     BackToBack,
     LevelUp,
     GameOver,
-    MarathonComplete,
+    /// The player finished a Marathon or a Sprint.
+    GameComplete,
 }
 
 /// A tone at a frequency in hertz for a time in milliseconds. A frequency of 0 is a rest.
@@ -87,7 +88,7 @@ impl SoundEffect {
                 Note(261.6, 160),
                 Note(196.0, 320),
             ],
-            SoundEffect::MarathonComplete => {
+            SoundEffect::GameComplete => {
                 vec![Note(C5, 110), Note(E5, 110), Note(G5, 110), Note(C6, 330)]
             }
         }
@@ -142,7 +143,7 @@ mod tests {
         SoundEffect::BackToBack,
         SoundEffect::LevelUp,
         SoundEffect::GameOver,
-        SoundEffect::MarathonComplete,
+        SoundEffect::GameComplete,
     ];
 
     fn seconds(samples: &[f32]) -> f32 {

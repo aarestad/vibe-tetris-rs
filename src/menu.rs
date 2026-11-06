@@ -1,4 +1,4 @@
-use crate::config::GameConfig;
+use crate::config::{GameConfig, GameMode};
 
 const MIN_LEVEL: u32 = 1;
 /// Levels range from 1 to 15 (Guideline 2.3.3).
@@ -20,6 +20,7 @@ pub enum MenuInput {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuItem {
     NewGame,
+    GameMode,
     StartingLevel,
     GoalSystem,
     Help,
@@ -28,8 +29,9 @@ pub enum MenuItem {
 
 impl MenuItem {
     /// All items in the order shown.
-    pub const ALL: [MenuItem; 5] = [
+    pub const ALL: [MenuItem; 6] = [
         MenuItem::NewGame,
+        MenuItem::GameMode,
         MenuItem::StartingLevel,
         MenuItem::GoalSystem,
         MenuItem::Help,
@@ -49,6 +51,7 @@ pub enum MenuResult {
 #[derive(Debug, Clone)]
 pub struct Menu {
     selected: usize,
+    game_mode: GameMode,
     starting_level: u32,
     variable_goal: bool,
     showing_help: bool,
@@ -59,6 +62,7 @@ impl Menu {
     pub fn new(config: &GameConfig) -> Self {
         Self {
             selected: 0,
+            game_mode: config.game_mode,
             starting_level: config.starting_level,
             variable_goal: config.enable_variable_goal,
             showing_help: false,
@@ -67,6 +71,10 @@ impl Menu {
 
     pub fn selected_item(&self) -> MenuItem {
         MenuItem::ALL[self.selected]
+    }
+
+    pub fn game_mode(&self) -> GameMode {
+        self.game_mode
     }
 
     pub fn starting_level(&self) -> u32 {
@@ -84,6 +92,7 @@ impl Menu {
     /// The settings for a new game: the config file's, with this menu's choices applied.
     pub fn game_config(&self, base: &GameConfig) -> GameConfig {
         GameConfig {
+            game_mode: self.game_mode,
             starting_level: self.starting_level,
             enable_variable_goal: self.variable_goal,
             ..base.clone()
@@ -120,7 +129,9 @@ impl Menu {
     fn select(&mut self) -> MenuResult {
         match self.selected_item() {
             MenuItem::NewGame => return MenuResult::StartGame,
-            MenuItem::StartingLevel | MenuItem::GoalSystem => self.change_value(true),
+            MenuItem::GameMode | MenuItem::StartingLevel | MenuItem::GoalSystem => {
+                self.change_value(true)
+            }
             MenuItem::Help => self.showing_help = true,
             MenuItem::Quit => return MenuResult::Exit,
         }
@@ -130,6 +141,12 @@ impl Menu {
     /// Changes the selected item's value, wrapping around at either end.
     fn change_value(&mut self, forward: bool) {
         match self.selected_item() {
+            MenuItem::GameMode => {
+                self.game_mode = match self.game_mode {
+                    GameMode::Marathon => GameMode::Sprint,
+                    GameMode::Sprint => GameMode::Marathon,
+                };
+            }
             MenuItem::StartingLevel => {
                 self.starting_level = match (forward, self.starting_level) {
                     (true, MAX_LEVEL) => MIN_LEVEL,
@@ -138,6 +155,8 @@ impl Menu {
                     (false, level) => level - 1,
                 };
             }
+            // A Sprint's Goal is always its lines, so there is no Goal System to choose.
+            MenuItem::GoalSystem if self.game_mode == GameMode::Sprint => {}
             MenuItem::GoalSystem => self.variable_goal = !self.variable_goal,
             MenuItem::NewGame | MenuItem::Help | MenuItem::Quit => {}
         }
@@ -164,14 +183,42 @@ mod tests {
     #[test]
     fn test_opens_on_new_game_with_config_choices() {
         let menu = Menu::new(&GameConfig {
+            game_mode: GameMode::Sprint,
             starting_level: 6,
             enable_variable_goal: true,
             ..GameConfig::default()
         });
         assert_eq!(menu.selected_item(), MenuItem::NewGame);
+        assert_eq!(menu.game_mode(), GameMode::Sprint);
         assert_eq!(menu.starting_level(), 6);
         assert!(menu.variable_goal());
         assert!(!menu.showing_help());
+    }
+
+    #[test]
+    fn test_game_mode_switches_either_way_and_defaults_to_marathon() {
+        let mut menu = menu_on(MenuItem::GameMode);
+        assert_eq!(menu.game_mode(), GameMode::Marathon);
+        menu.handle_input(Right);
+        assert_eq!(menu.game_mode(), GameMode::Sprint);
+        menu.handle_input(Right);
+        assert_eq!(menu.game_mode(), GameMode::Marathon);
+        menu.handle_input(Left);
+        assert_eq!(menu.game_mode(), GameMode::Sprint);
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+        assert_eq!(menu.game_mode(), GameMode::Marathon);
+    }
+
+    #[test]
+    fn test_goal_system_cannot_change_in_sprint() {
+        let mut menu = menu_on(MenuItem::GameMode);
+        menu.handle_input(Right);
+        menu.handle_input(Down);
+        menu.handle_input(Down);
+        assert_eq!(menu.selected_item(), MenuItem::GoalSystem);
+        menu.handle_input(Right);
+        menu.handle_input(Select);
+        assert!(!menu.variable_goal());
     }
 
     #[test]
@@ -248,6 +295,7 @@ mod tests {
             menu.handle_input(Right);
             menu.handle_input(Left);
             menu.handle_input(Right);
+            assert_eq!(menu.game_mode(), GameMode::Marathon, "{item:?}");
             assert_eq!(menu.starting_level(), 1, "{item:?}");
             assert!(!menu.variable_goal(), "{item:?}");
         }
@@ -294,11 +342,16 @@ mod tests {
         };
         let mut menu = Menu::new(&base);
         menu.handle_input(Down);
+        menu.handle_input(Down);
         menu.handle_input(Right);
         menu.handle_input(Down);
         menu.handle_input(Right);
+        menu.handle_input(Up);
+        menu.handle_input(Up);
+        menu.handle_input(Right);
 
         let config = menu.game_config(&base);
+        assert_eq!(config.game_mode, GameMode::Sprint);
         assert_eq!(config.starting_level, 2);
         assert!(config.enable_variable_goal);
         assert_eq!(config.preview_count, 6);

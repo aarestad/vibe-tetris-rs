@@ -1,7 +1,9 @@
-use crate::config::GameConfig;
+use crate::config::{GameConfig, GameMode};
 
 /// Marathon ends after this level (Guideline 12.1).
 const MAX_LEVEL: u32 = 15;
+/// Lines a Sprint asks for (Guideline 12.2).
+pub const SPRINT_LINES: u32 = 40;
 
 /// Kind of T-Spin recognized when a Tetrimino Locks Down (Guideline 9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,8 +18,8 @@ pub enum TSpin {
 pub struct ActionResult {
     /// Text to announce, if the Guideline wants this action announced (Guideline 13.1.5).
     pub notification: Option<String>,
-    /// True if this action finished the final level.
-    pub marathon_complete: bool,
+    /// True if this action finished the game: the final Marathon level, or the Sprint's lines.
+    pub game_complete: bool,
     /// True if this action earned the Back-to-Back bonus.
     pub back_to_back: bool,
     /// True if this action reached a new level.
@@ -34,6 +36,7 @@ pub struct Scoring {
     starting_level: u32,
     lines_per_level: u32,
     variable_goal: bool,
+    mode: GameMode,
     back_to_back_active: bool,
 }
 
@@ -47,6 +50,7 @@ impl Scoring {
             starting_level: config.starting_level,
             lines_per_level: config.lines_per_level,
             variable_goal: config.enable_variable_goal,
+            mode: config.game_mode,
             back_to_back_active: false,
         };
         scoring.lines_until_next_level = scoring.starting_goal();
@@ -90,17 +94,17 @@ impl Scoring {
             self.back_to_back_active = qualifies;
         }
 
-        let goal_credit = if self.variable_goal {
+        let goal_credit = if self.variable_goal && self.mode == GameMode::Marathon {
             (total / 100) as u32
         } else {
             lines
         };
 
         let level_before = self.level;
-        let marathon_complete = self.advance_goal(goal_credit);
+        let game_complete = self.advance_goal(goal_credit);
         ActionResult {
             notification: notification_text(tspin, lines, is_back_to_back),
-            marathon_complete,
+            game_complete,
             back_to_back: is_back_to_back,
             level_up: self.level > level_before,
         }
@@ -108,7 +112,7 @@ impl Scoring {
 
     /// Progress toward the Goal as (done, total), in lines or awarded Line Clears.
     pub fn goal_progress(&self) -> (u32, u32) {
-        let total = if self.level == self.starting_level {
+        let total = if self.mode == GameMode::Sprint || self.level == self.starting_level {
             self.starting_goal()
         } else {
             self.goal_for_level(self.level)
@@ -126,16 +130,24 @@ impl Scoring {
     }
 
     /// First Goal of a game. Starting higher includes the levels skipped (Guideline 6).
+    /// A Sprint has only this Goal.
     fn starting_goal(&self) -> u32 {
-        if self.variable_goal {
+        if self.mode == GameMode::Sprint {
+            SPRINT_LINES
+        } else if self.variable_goal {
             5 * self.level
         } else {
             self.lines_per_level * self.level
         }
     }
 
-    /// Applies credit toward the Goal. Returns true if it finished the final level.
+    /// Applies credit toward the Goal. Returns true if it finished the game.
     fn advance_goal(&mut self, credit: u32) -> bool {
+        // A Sprint never Levels Up (Guideline 12.2).
+        if self.mode == GameMode::Sprint {
+            self.lines_until_next_level = self.lines_until_next_level.saturating_sub(credit);
+            return self.lines_until_next_level == 0;
+        }
         let mut remaining = credit;
         while remaining >= self.lines_until_next_level {
             remaining -= self.lines_until_next_level;
@@ -409,7 +421,7 @@ mod tests {
             ..GameConfig::default()
         });
         scoring.lines_until_next_level = 2;
-        assert!(scoring.award_action(TSpin::None, 2).marathon_complete);
+        assert!(scoring.award_action(TSpin::None, 2).game_complete);
         assert_eq!(scoring.level, 15);
     }
 
@@ -432,7 +444,7 @@ mod tests {
     #[test]
     fn test_marathon_continues_below_level_15() {
         let mut scoring = scoring();
-        assert!(!scoring.award_action(TSpin::None, 4).marathon_complete);
+        assert!(!scoring.award_action(TSpin::None, 4).game_complete);
     }
 
     #[test]
@@ -446,6 +458,46 @@ mod tests {
         assert_eq!(scoring.goal_progress(), (15, 40));
         scoring.advance_goal(28);
         assert_eq!((scoring.level, scoring.goal_progress()), (5, (3, 10)));
+    }
+
+    fn sprint(starting_level: u32, variable_goal: bool) -> Scoring {
+        scoring_with(GameConfig {
+            game_mode: GameMode::Sprint,
+            starting_level,
+            enable_variable_goal: variable_goal,
+            ..GameConfig::default()
+        })
+    }
+
+    #[test]
+    fn test_sprint_ends_on_its_40th_line_and_never_levels_up() {
+        let mut scoring = sprint(5, false);
+        assert_eq!(scoring.goal_progress(), (0, 40));
+        for _ in 0..9 {
+            let result = scoring.award_action(TSpin::None, 4);
+            assert!(!result.game_complete && !result.level_up);
+        }
+        assert_eq!((scoring.level, scoring.goal_progress()), (5, (36, 40)));
+
+        scoring.award_action(TSpin::None, 3);
+        assert!(scoring.award_action(TSpin::None, 4).game_complete);
+        assert_eq!((scoring.level, scoring.goal_progress()), (5, (40, 40)));
+    }
+
+    #[test]
+    fn test_sprint_counts_lines_even_with_variable_goal() {
+        let mut scoring = sprint(1, true);
+        scoring.award_action(TSpin::Full, 2);
+        assert_eq!(scoring.goal_progress(), (2, 40));
+        scoring.award_action(TSpin::Full, 0);
+        assert_eq!(scoring.goal_progress(), (2, 40));
+    }
+
+    #[test]
+    fn test_sprint_still_scores_at_its_level() {
+        let mut scoring = sprint(3, false);
+        scoring.award_action(TSpin::None, 4);
+        assert_eq!(scoring.score, 800 * 3);
     }
 
     #[test]

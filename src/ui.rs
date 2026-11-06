@@ -1,5 +1,7 @@
+use crate::config::GameMode;
 use crate::game_state::{GameOutcome, GameState};
 use crate::menu::{Menu, MenuItem};
+use crate::scoring::SPRINT_LINES;
 use crate::screen::Screen;
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
@@ -12,6 +14,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::io::Stdout;
+use std::time::Duration;
 
 const SIDE_PANEL_WIDTH: u16 = 14;
 const HOLD_PANEL_HEIGHT: u16 = 6;
@@ -78,8 +81,14 @@ impl Renderer {
             .map(|item| {
                 let text = match item {
                     MenuItem::NewGame => "New Game".to_string(),
+                    MenuItem::GameMode => {
+                        format!("Mode: < {} >", Self::mode_name(menu.game_mode()))
+                    }
                     MenuItem::StartingLevel => {
                         format!("Starting Level: < {} >", menu.starting_level())
+                    }
+                    MenuItem::GoalSystem if menu.game_mode() == GameMode::Sprint => {
+                        format!("Goal: {SPRINT_LINES} Lines")
                     }
                     MenuItem::GoalSystem => {
                         let goal = if menu.variable_goal() {
@@ -108,6 +117,23 @@ impl Renderer {
         lines.push(Line::from("↑ ↓ move   ← → change"));
         lines.push(Line::from("Enter to choose"));
         lines
+    }
+
+    fn mode_name(mode: GameMode) -> &'static str {
+        match mode {
+            GameMode::Marathon => "Marathon",
+            GameMode::Sprint => "Sprint",
+        }
+    }
+
+    /// Time as minutes and seconds. A Sprint is a race, so it also shows hundredths.
+    fn format_time(time: Duration, mode: GameMode) -> String {
+        let seconds = time.as_secs();
+        let clock = format!("{:02}:{:02}", seconds / 60, seconds % 60);
+        match mode {
+            GameMode::Marathon => clock,
+            GameMode::Sprint => format!("{clock}.{:02}", time.subsec_millis() / 10),
+        }
     }
 
     /// Size of the playing field, side panels included.
@@ -186,7 +212,6 @@ impl Renderer {
     }
 
     fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
-        let seconds = state.elapsed.as_secs();
         let (done, total) = state.scoring.goal_progress();
         let mut lines = vec![
             Self::label("SCORE"),
@@ -202,7 +227,7 @@ impl Renderer {
                 Style::default().fg(Color::Green),
             ),
             Self::label("TIME"),
-            Self::value(format!("{:02}:{:02}", seconds / 60, seconds % 60)),
+            Self::value(Self::format_time(state.elapsed, state.config.game_mode)),
             Line::styled(
                 "[H] Help",
                 Style::default()
@@ -452,17 +477,31 @@ impl Renderer {
 
     fn draw_game_over_screen(f: &mut Frame, state: &GameState) {
         Self::draw_game(f, state, false);
-        let title = if state.outcome() == Some(GameOutcome::MarathonComplete) {
-            " MARATHON COMPLETE "
-        } else {
-            " GAME OVER "
+        let title = match state.outcome() {
+            Some(GameOutcome::MarathonComplete) => " MARATHON COMPLETE ",
+            Some(GameOutcome::SprintComplete) => " SPRINT COMPLETE ",
+            _ => " GAME OVER ",
         };
-        let lines = vec![
-            Line::from(format!("Final Score: {}", state.scoring.score)),
-            Line::from(format!("Level Reached: {}", state.scoring.level)),
-            Line::from(format!("Lines Cleared: {}", state.scoring.lines_cleared)),
-            Line::from("Press any key"),
-        ];
+        let scoring = &state.scoring;
+        let mut lines = vec![Line::from(format!("Final Score: {}", scoring.score))];
+        match state.config.game_mode {
+            GameMode::Marathon => {
+                lines.push(Line::from(format!("Level Reached: {}", scoring.level)));
+                lines.push(Line::from(format!(
+                    "Lines Cleared: {}",
+                    scoring.lines_cleared
+                )));
+            }
+            GameMode::Sprint => {
+                let time = Self::format_time(state.elapsed, GameMode::Sprint);
+                lines.insert(0, Line::from(format!("Time: {time}")));
+                let lines_cleared = scoring.lines_cleared.min(SPRINT_LINES);
+                lines.push(Line::from(format!(
+                    "Lines Cleared: {lines_cleared}/{SPRINT_LINES}"
+                )));
+            }
+        }
+        lines.push(Line::from("Press any key"));
         Self::draw_box(f, state, title, lines, Alignment::Center);
     }
 
@@ -724,6 +763,7 @@ mod tests {
         for label in [
             "TETRIS",
             "> New Game",
+            "Mode: < Marathon >",
             "Starting Level: < 1 >",
             "Goal: < Fixed >",
         ] {
@@ -731,6 +771,7 @@ mod tests {
         }
         assert!(screen.contains("  Help") && screen.contains("  Quit"));
 
+        menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Right);
         let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
@@ -742,12 +783,14 @@ mod tests {
     fn test_longest_menu_values_fit_in_the_box() {
         let mut menu = menu();
         menu.handle_input(MenuInput::Down);
+        menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Left);
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Right);
         let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
         assert!(screen.contains("Starting Level: < 15 >"));
         assert!(screen.contains("> Goal: < Variable >"));
+        assert!(screen.contains("Mode: < Marathon >"));
     }
 
     #[test]
@@ -837,6 +880,51 @@ mod tests {
             Renderer::draw_game_over_screen(f, &state)
         });
         assert!(text(&buffer).contains("MARATHON COMPLETE"));
+    }
+
+    fn sprint_state() -> GameState {
+        GameState::new(GameConfig {
+            game_mode: GameMode::Sprint,
+            enable_sound: false,
+            ..GameConfig::default()
+        })
+    }
+
+    #[test]
+    fn test_sprint_info_panel_shows_hundredths_and_lines_to_go() {
+        let mut state = sprint_state();
+        state.elapsed = std::time::Duration::from_millis(83_456);
+        let screen = text(&draw_state(&state));
+        assert!(screen.contains("01:23.45"), "{screen}");
+        assert!(screen.contains("0/40"), "{screen}");
+    }
+
+    #[test]
+    fn test_sprint_complete_shows_the_time() {
+        let mut state = sprint_state();
+        state.elapsed = std::time::Duration::from_millis(61_230);
+        state.scoring.lines_cleared = 41;
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::SprintComplete,
+            piece: None,
+        };
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state)
+        }));
+        assert!(screen.contains("SPRINT COMPLETE"), "{screen}");
+        assert!(screen.contains("Time: 01:01.23"), "{screen}");
+        assert!(screen.contains("Lines Cleared: 40/40"), "{screen}");
+        assert!(!screen.contains("Level Reached"), "{screen}");
+    }
+
+    #[test]
+    fn test_menu_shows_sprint_with_its_fixed_goal() {
+        let mut menu = menu();
+        menu.handle_input(MenuInput::Down);
+        menu.handle_input(MenuInput::Right);
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        assert!(screen.contains("> Mode: < Sprint >"), "{screen}");
+        assert!(screen.contains("Goal: 40 Lines"), "{screen}");
     }
 
     #[test]

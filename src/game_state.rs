@@ -1,5 +1,5 @@
 use crate::board::Board;
-use crate::config::{GameConfig, LockDownMode};
+use crate::config::{GameConfig, GameMode, LockDownMode};
 use crate::scoring::{Scoring, TSpin};
 use crate::sound::SoundEffect;
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
@@ -47,7 +47,7 @@ impl LockState {
     }
 }
 
-/// Why a game ended (Guideline 10 and 12.1).
+/// Why a game ended (Guideline 10 and 12).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameOutcome {
     /// A new Tetrimino's generation position was blocked.
@@ -58,6 +58,8 @@ pub enum GameOutcome {
     Quit,
     /// The player finished the final Marathon level.
     MarathonComplete,
+    /// The player cleared all the lines of a Sprint.
+    SprintComplete,
 }
 
 /// The stage a game is in. Each Tetrimino goes through these in turn (Guideline A1.1).
@@ -559,14 +561,17 @@ impl GameState {
         if result.back_to_back {
             self.sound_effects.push(SoundEffect::BackToBack);
         }
-        if result.marathon_complete {
-            self.sound_effects.push(SoundEffect::MarathonComplete);
+        if result.game_complete {
+            self.sound_effects.push(SoundEffect::GameComplete);
         } else if result.level_up {
             self.sound_effects.push(SoundEffect::LevelUp);
         }
-        self.phase = if result.marathon_complete {
+        self.phase = if result.game_complete {
             Phase::GameOver {
-                outcome: GameOutcome::MarathonComplete,
+                outcome: match self.config.game_mode {
+                    GameMode::Marathon => GameOutcome::MarathonComplete,
+                    GameMode::Sprint => GameOutcome::SprintComplete,
+                },
                 piece: None,
             }
         } else {
@@ -1524,7 +1529,7 @@ mod tests {
     }
 
     #[test]
-    fn test_level_up_and_marathon_complete_sound() {
+    fn test_level_up_and_game_complete_sound() {
         let mut state = new_state();
         state.scoring.lines_until_next_level = 4;
         do_tetris(&mut state);
@@ -1541,7 +1546,7 @@ mod tests {
         do_tetris(&mut state);
         assert_eq!(
             sounds(&mut state),
-            [SoundEffect::LineClear(4), SoundEffect::MarathonComplete]
+            [SoundEffect::LineClear(4), SoundEffect::GameComplete]
         );
     }
 
@@ -1646,6 +1651,26 @@ mod tests {
         state.scoring.lines_until_next_level = 4;
         do_tetris(&mut state);
         assert_eq!(state.outcome(), Some(GameOutcome::MarathonComplete));
+    }
+
+    #[test]
+    fn test_clearing_40_lines_ends_a_sprint_and_stops_the_clock() {
+        let mut state = GameState::new(GameConfig {
+            game_mode: GameMode::Sprint,
+            ..config()
+        });
+        state.scoring.lines_until_next_level = 4;
+        state.tick(Duration::from_secs(90));
+        do_tetris(&mut state);
+        assert_eq!(state.outcome(), Some(GameOutcome::SprintComplete));
+        assert_eq!(
+            sounds(&mut state),
+            [SoundEffect::LineClear(4), SoundEffect::GameComplete]
+        );
+
+        let time = state.elapsed();
+        state.tick(Duration::from_secs(5));
+        assert_eq!(state.elapsed(), time);
     }
 
     #[test]

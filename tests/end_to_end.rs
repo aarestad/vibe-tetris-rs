@@ -374,6 +374,7 @@ fn test_program_opens_on_the_main_menu_with_no_game_running() {
     for label in [
         "TETRIS",
         "> New Game",
+        "Mode: < Marathon >",
         "Starting Level: < 1 >",
         "Goal: < Fixed >",
         "Help",
@@ -388,10 +389,12 @@ fn test_program_opens_on_the_main_menu_with_no_game_running() {
 fn test_starting_level_chosen_in_the_menu_reaches_the_game() {
     let terminal = Terminal::start_at_menu();
     terminal.send(DOWN);
+    terminal.send(DOWN);
     terminal.send(RIGHT);
     terminal.send(RIGHT);
     terminal.wait_for_text("> Starting Level: < 3 >");
 
+    terminal.send(UP);
     terminal.send(UP);
     terminal.wait_for_text("> New Game");
     terminal.send(ENTER);
@@ -406,9 +409,11 @@ fn test_goal_system_chosen_in_the_menu_reaches_the_game() {
     let terminal = Terminal::start_at_menu();
     terminal.send(DOWN);
     terminal.send(DOWN);
+    terminal.send(DOWN);
     terminal.send(RIGHT);
     terminal.wait_for_text("> Goal: < Variable >");
 
+    terminal.send(UP);
     terminal.send(UP);
     terminal.send(UP);
     terminal.wait_for_text("> New Game");
@@ -416,6 +421,29 @@ fn test_goal_system_chosen_in_the_menu_reaches_the_game() {
     terminal.wait_for_piece();
     // Variable Goal needs 5 x Level, not 10 lines (Guideline 6).
     terminal.wait_for_text("0/5");
+}
+
+#[test]
+fn test_sprint_chosen_in_the_menu_reaches_the_game() {
+    let terminal = Terminal::start_at_menu();
+    terminal.send(DOWN);
+    terminal.send(RIGHT);
+    terminal.wait_for_text("> Mode: < Sprint >");
+    terminal.wait_for_text("Goal: 40 Lines");
+
+    terminal.send(UP);
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    // A Sprint asks for 40 lines (Guideline 12.2), and its clock shows hundredths.
+    terminal.wait_for_text("0/40");
+    terminal.wait_for("the clock to show hundredths", |t| {
+        let text = t.screen_text();
+        let mut lines = text.lines().skip_while(|line| !line.contains("TIME"));
+        lines
+            .nth(1)
+            .is_some_and(|line| line.contains("00:0") && line.contains('.'))
+    });
 }
 
 #[test]
@@ -489,7 +517,10 @@ fn test_menu_choices_last_into_the_next_game() {
     let terminal = Terminal::start_at_menu();
     terminal.send(DOWN);
     terminal.send(RIGHT);
+    terminal.send(DOWN);
+    terminal.send(RIGHT);
     terminal.wait_for_text("< 2 >");
+    terminal.send(UP);
     terminal.send(UP);
     terminal.wait_for_text("> New Game");
     terminal.send(ENTER);
@@ -498,6 +529,7 @@ fn test_menu_choices_last_into_the_next_game() {
     terminal.wait_for_text("GAME OVER");
     terminal.go_to_menu();
     terminal.wait_for_text("Starting Level: < 2 >");
+    terminal.wait_for_text("Mode: < Sprint >");
 }
 
 #[test]

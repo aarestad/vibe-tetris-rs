@@ -5,7 +5,7 @@
 //! Tetriminos. A different result for these seeds means the game's behavior has changed.
 
 use std::time::Duration;
-use tetris_rs::config::GameConfig;
+use tetris_rs::config::{GameConfig, GameMode};
 use tetris_rs::game_state::{GameOutcome, GameState};
 use tetris_rs::input::{InputAction, InputEvent};
 use tetris_rs::session::Session;
@@ -123,7 +123,7 @@ fn place(session: &mut Session, piece: Tetrimino) {
     press(session, InputAction::HardDrop);
 }
 
-fn play_marathon(config: GameConfig, seed: u64) -> Session {
+fn play_game(config: GameConfig, seed: u64) -> Session {
     let mut session = Session::with_seed(config, seed);
 
     for _ in 0..MAX_PIECES {
@@ -178,7 +178,7 @@ const SEEDS: [u64; 3] = [1, 2, 3];
 #[test]
 fn test_skilled_fixed_goal_marathon_reaches_the_end() {
     for seed in SEEDS {
-        let session = play_marathon(config(), seed);
+        let session = play_game(config(), seed);
         let state = session.state();
 
         assert_eq!(
@@ -200,7 +200,7 @@ fn test_skilled_variable_goal_marathon_reaches_the_end() {
     for seed in SEEDS {
         // From level 1 this needs 600 awarded Line Clears, more than this bot reliably survives.
         // Starting at level 13 still plays through three Goals: 65, 70 and 75.
-        let session = play_marathon(
+        let session = play_game(
             GameConfig {
                 enable_variable_goal: true,
                 starting_level: 13,
@@ -218,5 +218,27 @@ fn test_skilled_variable_goal_marathon_reaches_the_end() {
         assert_eq!(state.scoring().level, 15, "{seed}");
         // 210 awarded Line Clears, and no line earns more than 8 outside a Back-to-Back.
         assert!(state.scoring().lines_cleared >= 210 / 12, "{seed}");
+    }
+}
+
+#[test]
+fn test_skilled_sprint_ends_on_40_lines_at_its_starting_level() {
+    for seed in SEEDS {
+        let session = play_game(
+            GameConfig {
+                game_mode: GameMode::Sprint,
+                starting_level: 5,
+                ..config()
+            },
+            seed,
+        );
+        let state = session.state();
+
+        assert_eq!(state.outcome(), Some(GameOutcome::SprintComplete), "{seed}");
+        // A Sprint does not Level Up (Guideline 12.2).
+        assert_eq!(state.scoring().level, 5, "{seed}");
+        // The last clear can overshoot by up to 3.
+        assert!((40..=43).contains(&state.scoring().lines_cleared), "{seed}");
+        assert!(state.elapsed() > Duration::ZERO, "{seed}");
     }
 }

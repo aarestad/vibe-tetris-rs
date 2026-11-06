@@ -16,6 +16,17 @@ pub enum LockDownMode {
     Classic,
 }
 
+/// Which game is played (Guideline 12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GameMode {
+    /// Play for points through 15 levels (Guideline 12.1).
+    #[default]
+    Marathon,
+    /// Clear 40 lines as fast as possible, with no Level Up (Guideline 12.2).
+    Sprint,
+}
+
 /// Game settings. Any field missing from the config file takes its default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -24,15 +35,17 @@ pub struct GameConfig {
     pub board_width: usize,
     /// Matrix height in cells, not counting the Buffer Zone. The Guideline standard is 20.
     pub board_height: usize,
+    /// Marathon or Sprint.
+    pub game_mode: GameMode,
     /// Level to start from, 1 to 15. Higher starts raise the first Goal.
     pub starting_level: u32,
-    /// Lines per level in the Fixed Goal System. The Guideline standard is 10.
+    /// Lines per level in the Fixed Goal System. Sprint ignores it. The Guideline standard is 10.
     pub lines_per_level: u32,
     /// Shows where the Tetrimino in play will land.
     pub enable_ghost_piece: bool,
     /// Allows the Hold command.
     pub enable_hold: bool,
-    /// Uses the Variable Goal System instead of the Fixed Goal System.
+    /// Uses the Variable Goal System instead of the Fixed Goal System. Sprint ignores it.
     pub enable_variable_goal: bool,
     /// Opens the sound device. When false, the game is silent whatever the other settings.
     pub enable_sound: bool,
@@ -55,6 +68,7 @@ impl Default for GameConfig {
         Self {
             board_width: 10,
             board_height: 20,
+            game_mode: GameMode::Marathon,
             starting_level: 1,
             lines_per_level: 10,
             enable_ghost_piece: true,
@@ -140,6 +154,13 @@ mod tests {
         let config: GameConfig = serde_json::from_str(r#"{"enable_music": false}"#).unwrap();
         assert!(!config.enable_music);
         assert!(config.enable_sound_effects);
+    }
+
+    #[test]
+    fn test_game_mode_defaults_to_marathon_and_parses_from_snake_case() {
+        assert_eq!(GameConfig::default().game_mode, GameMode::Marathon);
+        let config: GameConfig = serde_json::from_str(r#"{"game_mode": "sprint"}"#).unwrap();
+        assert_eq!(config.game_mode, GameMode::Sprint);
     }
 
     #[test]
