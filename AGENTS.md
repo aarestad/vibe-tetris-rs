@@ -131,6 +131,7 @@ src/
 ├── scoring.rs       # Score, Back-to-Back, level and Goal
 ├── screen.rs        # Playing, Paused and Help screens and the keys that switch them
 ├── session.rs       # Input and time handling for one game, with no terminal or sound
+├── sound.rs         # Sound effects as synthesized notes, rendered to samples
 ├── board.rs         # Game board and collision detection
 ├── tetrimino.rs     # Tetrimino definitions and rotations
 ├── input.rs         # Keyboard input processing

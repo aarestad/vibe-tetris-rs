@@ -18,6 +18,10 @@ pub struct ActionResult {
     pub notification: Option<String>,
     /// True if this action finished the final level.
     pub marathon_complete: bool,
+    /// True if this action earned the Back-to-Back bonus.
+    pub back_to_back: bool,
+    /// True if this action reached a new level.
+    pub level_up: bool,
 }
 
 /// Score, level and Goal for one game (Guideline 6 and 8).
@@ -92,9 +96,13 @@ impl Scoring {
             lines
         };
 
+        let level_before = self.level;
+        let marathon_complete = self.advance_goal(goal_credit);
         ActionResult {
             notification: notification_text(tspin, lines, is_back_to_back),
-            marathon_complete: self.advance_goal(goal_credit),
+            marathon_complete,
+            back_to_back: is_back_to_back,
+            level_up: self.level > level_before,
         }
     }
 
@@ -403,6 +411,22 @@ mod tests {
         scoring.lines_until_next_level = 2;
         assert!(scoring.award_action(TSpin::None, 2).marathon_complete);
         assert_eq!(scoring.level, 15);
+    }
+
+    #[test]
+    fn test_result_reports_back_to_back_and_level_up() {
+        let mut scoring = scoring();
+        let first = scoring.award_action(TSpin::None, 4);
+        assert!(!first.back_to_back && !first.level_up);
+
+        let second = scoring.award_action(TSpin::None, 4);
+        assert!(second.back_to_back);
+        assert!(!second.level_up);
+
+        let third = scoring.award_action(TSpin::None, 2);
+        assert!(!third.back_to_back);
+        assert!(third.level_up);
+        assert_eq!(scoring.level, 2);
     }
 
     #[test]

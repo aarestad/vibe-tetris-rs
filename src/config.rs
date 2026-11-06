@@ -34,8 +34,12 @@ pub struct GameConfig {
     pub enable_hold: bool,
     /// Uses the Variable Goal System instead of the Fixed Goal System.
     pub enable_variable_goal: bool,
-    /// Plays background music.
+    /// Opens the sound device. When false, the game is silent whatever the other settings.
     pub enable_sound: bool,
+    /// Plays background music during games (Guideline 2.5.5).
+    pub enable_music: bool,
+    /// Plays sound effects (Guideline 2.5.6).
+    pub enable_sound_effects: bool,
     /// Tetriminos shown in the Next Queue, 1 to 6.
     pub preview_count: usize,
     /// Delay before Auto-Repeat starts, in milliseconds.
@@ -57,6 +61,8 @@ impl Default for GameConfig {
             enable_hold: true,
             enable_variable_goal: false,
             enable_sound: true,
+            enable_music: true,
+            enable_sound_effects: true,
             preview_count: 3,
             das_delay: 300,
             das_repeat: 50,
@@ -123,6 +129,17 @@ mod tests {
         assert_eq!(config.starting_level, 4);
         assert_eq!(config.board_width, 10);
         assert_eq!(config.lock_down_mode, LockDownMode::Extended);
+    }
+
+    #[test]
+    fn test_music_and_effects_default_on_and_can_be_turned_off_separately() {
+        // Guideline 2.5.5 and 2.5.6: both may be turned off, and both default to on.
+        let default = GameConfig::default();
+        assert!(default.enable_music && default.enable_sound_effects);
+
+        let config: GameConfig = serde_json::from_str(r#"{"enable_music": false}"#).unwrap();
+        assert!(!config.enable_music);
+        assert!(config.enable_sound_effects);
     }
 
     #[test]

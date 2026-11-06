@@ -46,11 +46,16 @@ field left out takes its default. An invalid file stops the game with an error.
   "enable_hold": true,
   "enable_variable_goal": false,
   "enable_sound": true,
+  "enable_music": true,
+  "enable_sound_effects": true,
   "preview_count": 3,
   "das_delay": 300,
   "das_repeat": 50,
   "lock_down_mode": "extended"
 }
 ```
+
+`enable_sound` turns all sound on or off. When it is on, `enable_music` and
+`enable_sound_effects` control the background music and the sound effects separately.
 
 `lock_down_mode` can be `extended`, `infinite` or `classic`.

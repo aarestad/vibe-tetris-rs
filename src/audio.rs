@@ -1,6 +1,8 @@
 use anyhow::Result;
 use std::io::Cursor;
 
+use crate::sound::{SAMPLE_RATE, SoundEffect};
+use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
 
 /// Korobeiniki, the Guideline's default background music (Guideline 13.3). Built into the
@@ -11,6 +13,7 @@ pub struct AudioPlayer {
     stream: Option<OutputStream>,
     sink: Option<Sink>,
     volume: f32,
+    effects_volume: f32,
     warnings: Vec<String>,
 }
 
@@ -20,6 +23,7 @@ impl AudioPlayer {
             stream: None,
             sink: None,
             volume: 1.0,
+            effects_volume: 1.0,
             warnings: Vec::new(),
         }
     }
@@ -43,6 +47,7 @@ impl AudioPlayer {
             stream: Some(stream),
             sink: None,
             volume: 1.0,
+            effects_volume: 1.0,
             warnings: Vec::new(),
         })
     }
@@ -64,6 +69,20 @@ impl AudioPlayer {
                 .warnings
                 .push(format!("Failed to decode background music: {e}.")),
         }
+    }
+
+    /// Plays a sound effect over anything else playing. Effects overlap rather than queue.
+    pub fn play_effect(&mut self, effect: SoundEffect) {
+        let Some(stream) = &self.stream else {
+            return;
+        };
+        let samples = SamplesBuffer::new(1, SAMPLE_RATE, effect.render());
+        stream.mixer().add(samples.amplify(self.effects_volume));
+    }
+
+    /// Sets the volume for sound effects played from now on.
+    pub fn set_effects_volume(&mut self, volume: f32) {
+        self.effects_volume = volume.clamp(0.0, 1.0);
     }
 
     /// Returns and clears messages saved during play. Printing during play would corrupt
@@ -152,6 +171,26 @@ mod tests {
         player.resume();
         assert!(!player.sink.as_ref().unwrap().is_paused());
         player.stop();
+        assert!(player.take_warnings().is_empty());
+    }
+
+    #[test]
+    fn test_effects_play_on_a_real_device_without_error() {
+        let Ok(mut player) = AudioPlayer::try_new() else {
+            return;
+        };
+        player.set_effects_volume(0.0);
+        player.play_effect(SoundEffect::GameOver);
+        player.play_effect(SoundEffect::Move);
+        assert!(player.take_warnings().is_empty());
+    }
+
+    #[test]
+    fn test_effects_volume_is_clamped_and_no_sound_ignores_effects() {
+        let mut player = AudioPlayer::no_sound();
+        player.set_effects_volume(3.0);
+        assert_eq!(player.effects_volume, 1.0);
+        player.play_effect(SoundEffect::LevelUp);
         assert!(player.take_warnings().is_empty());
     }
 

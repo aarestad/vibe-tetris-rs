@@ -1,6 +1,7 @@
 use crate::board::Board;
 use crate::config::{GameConfig, LockDownMode};
 use crate::scoring::{Scoring, TSpin};
+use crate::sound::SoundEffect;
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -92,6 +93,8 @@ pub struct GameState {
     last_move_was_rotation: bool,
     used_rotation_point_5: bool,
     pub(crate) notification: Option<(String, Duration)>,
+    /// Sounds for events since the last `take_sound_effects`.
+    pub(crate) sound_effects: Vec<SoundEffect>,
 }
 
 pub struct LineClearAnimation {
@@ -139,6 +142,7 @@ impl GameState {
             last_move_was_rotation: false,
             used_rotation_point_5: false,
             notification: None,
+            sound_effects: Vec::new(),
         };
 
         game_state.refill_bag();
@@ -169,6 +173,11 @@ impl GameState {
     /// Time played, excluding pauses.
     pub fn elapsed(&self) -> Duration {
         self.elapsed
+    }
+
+    /// Returns and clears the sounds for events since the last call.
+    pub fn take_sound_effects(&mut self) -> Vec<SoundEffect> {
+        std::mem::take(&mut self.sound_effects)
     }
 
     /// Advances the current phase and all timers.
@@ -283,12 +292,15 @@ impl GameState {
         if self.falling_piece().is_none() || self.can_fall() {
             return;
         }
-        self.lock.has_landed = true;
+        if !self.lock.has_landed {
+            self.lock.has_landed = true;
+            self.sound_effects.push(SoundEffect::Land);
+        }
 
         let out_of_moves =
             self.config.lock_down_mode == LockDownMode::Extended && self.lock.moves_left == 0;
         if out_of_moves || self.lock.timer <= dt {
-            self.lock_current_piece();
+            self.lock_piece(false);
         } else {
             self.lock.timer -= dt;
         }
@@ -363,6 +375,7 @@ impl GameState {
                 outcome: GameOutcome::BlockOut,
                 piece: Some(piece),
             };
+            self.sound_effects.push(SoundEffect::GameOver);
             return;
         }
         self.phase = Phase::Falling(piece);
@@ -392,6 +405,7 @@ impl GameState {
         if moved {
             self.last_move_was_rotation = false;
             self.note_manipulation();
+            self.sound_effects.push(SoundEffect::Move);
         }
         moved
     }
@@ -402,6 +416,9 @@ impl GameState {
             return;
         }
         self.soft_dropping = active;
+        if active && self.falling_piece().is_some() {
+            self.sound_effects.push(SoundEffect::SoftDrop);
+        }
         // Keep the same fraction of a row, so changing speed cannot release a burst of rows.
         if active {
             self.fall_progress /= SOFT_DROP_FACTOR;
@@ -413,7 +430,11 @@ impl GameState {
     /// Drops one row and awards one Soft Drop point. Used on terminals that cannot report
     /// key releases, where each key event stands for one step of Soft Drop.
     pub fn soft_drop_step(&mut self) -> bool {
-        self.drop_one_row(1)
+        let moved = self.drop_one_row(1);
+        if moved {
+            self.sound_effects.push(SoundEffect::SoftDrop);
+        }
+        moved
     }
 
     /// Rotates using the Super Rotation System (Guideline A1.4). The first rotation point
@@ -422,8 +443,10 @@ impl GameState {
         let Some(piece) = self.falling_piece() else {
             return false;
         };
-        // All O-Tetrimino facings occupy the same cells, so rotating changes nothing.
+        // All O-Tetrimino facings occupy the same cells, so rotating changes nothing. It still
+        // sounds like a rotation, as the player asked for one and nothing blocked it.
         if piece.kind == TetriminoType::O {
+            self.sound_effects.push(SoundEffect::Rotate);
             return false;
         }
 
@@ -445,9 +468,11 @@ impl GameState {
                 self.last_move_was_rotation = true;
                 self.used_rotation_point_5 |= point == 5;
                 self.note_manipulation();
+                self.sound_effects.push(SoundEffect::Rotate);
                 return true;
             }
         }
+        self.sound_effects.push(SoundEffect::RotateBlocked);
         false
     }
 
@@ -462,11 +487,19 @@ impl GameState {
             self.last_move_was_rotation = false;
         }
         self.scoring.add_hard_drop(rows);
-        self.lock_current_piece();
+        self.sound_effects.push(SoundEffect::HardDrop);
+        self.lock_piece(true);
     }
 
     /// Locks the Tetrimino in play and starts the Pattern and Animate phases.
+    #[cfg(test)]
     pub(crate) fn lock_current_piece(&mut self) {
+        self.lock_piece(false);
+    }
+
+    /// Locks the Tetrimino in play. A Hard Drop already has its own sound, so it plays no
+    /// Lock Down sound, and a Line Clear or T-Spin sound replaces the Lock Down sound.
+    fn lock_piece(&mut self, hard_dropped: bool) {
         let Some(piece) = self.falling_piece() else {
             return;
         };
@@ -480,10 +513,21 @@ impl GameState {
                 outcome: GameOutcome::LockOut,
                 piece: None,
             };
+            self.sound_effects.push(SoundEffect::GameOver);
             return;
         }
 
         let cleared_rows = self.board.get_full_lines();
+        let effect = match tspin {
+            TSpin::Full => Some(SoundEffect::TSpin),
+            TSpin::Mini => Some(SoundEffect::MiniTSpin),
+            TSpin::None if !cleared_rows.is_empty() => {
+                Some(SoundEffect::LineClear(cleared_rows.len() as u32))
+            }
+            TSpin::None if hard_dropped => None,
+            TSpin::None => Some(SoundEffect::LockDown),
+        };
+        self.sound_effects.extend(effect);
         if cleared_rows.is_empty() {
             self.finish_action(tspin, 0);
         } else {
@@ -511,6 +555,14 @@ impl GameState {
         let result = self.scoring.award_action(tspin, lines);
         if let Some(text) = result.notification {
             self.notification = Some((text, NOTIFICATION_TIME));
+        }
+        if result.back_to_back {
+            self.sound_effects.push(SoundEffect::BackToBack);
+        }
+        if result.marathon_complete {
+            self.sound_effects.push(SoundEffect::MarathonComplete);
+        } else if result.level_up {
+            self.sound_effects.push(SoundEffect::LevelUp);
         }
         self.phase = if result.marathon_complete {
             Phase::GameOver {
@@ -589,6 +641,7 @@ impl GameState {
         };
 
         self.hold_used = true;
+        self.sound_effects.push(SoundEffect::Hold);
         match self.held_piece.replace(current.kind) {
             Some(held) => self.place_piece(held),
             None => self.spawn_piece(),
@@ -1342,6 +1395,182 @@ mod tests {
         state.used_rotation_point_5 = true;
         let p = piece(TetriminoType::T, 3, 18, Facing::North);
         assert_eq!(state.detect_tspin(&p), TSpin::Full);
+    }
+
+    // --- Sound effects ---
+
+    fn sounds(state: &mut GameState) -> Vec<SoundEffect> {
+        state.take_sound_effects()
+    }
+
+    #[test]
+    fn test_move_and_rotate_sound_only_when_they_happen() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, Facing::North));
+        state.shift_piece(1);
+        state.rotate_piece(true);
+        assert_eq!(sounds(&mut state), [SoundEffect::Move, SoundEffect::Rotate]);
+
+        // Against the left wall, a move fails silently here; the session plays that sound.
+        state.phase = Phase::Falling(piece(TetriminoType::T, 0, 5, Facing::North));
+        assert!(!state.shift_piece(-1));
+        assert!(sounds(&mut state).is_empty());
+    }
+
+    #[test]
+    fn test_blocked_rotation_has_its_own_sound() {
+        let mut state = new_state();
+        for y in 0..20 {
+            for x in 0..10 {
+                let in_piece = (y == 10 && (3..=5).contains(&x)) || (y == 9 && x == 4);
+                if !in_piece {
+                    fill(&mut state, &[(x, y)]);
+                }
+            }
+        }
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 9, Facing::North));
+        assert!(!state.rotate_piece(true));
+        assert_eq!(sounds(&mut state), [SoundEffect::RotateBlocked]);
+    }
+
+    #[test]
+    fn test_rotating_o_sounds_like_a_rotation() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 5, Facing::North));
+        state.rotate_piece(true);
+        assert_eq!(sounds(&mut state), [SoundEffect::Rotate]);
+    }
+
+    #[test]
+    fn test_landing_sounds_once_then_lock_down_sounds() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 17, Facing::North));
+        for _ in 0..63 {
+            state.tick(Duration::from_millis(16));
+        }
+        assert_eq!(state.current_piece().unwrap().y, 18);
+        assert_eq!(sounds(&mut state), [SoundEffect::Land]);
+
+        state.tick(Duration::from_millis(100));
+        assert!(sounds(&mut state).is_empty());
+
+        state.tick(LOCK_DELAY);
+        assert_eq!(sounds(&mut state), [SoundEffect::LockDown]);
+    }
+
+    #[test]
+    fn test_hard_drop_has_its_own_sound_instead_of_lock_down() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 5, Facing::North));
+        state.hard_drop();
+        assert_eq!(sounds(&mut state), [SoundEffect::HardDrop]);
+    }
+
+    #[test]
+    fn test_soft_drop_sounds_when_it_starts_and_per_step() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, Facing::North));
+        state.set_soft_drop(true);
+        state.set_soft_drop(true);
+        assert_eq!(sounds(&mut state), [SoundEffect::SoftDrop]);
+
+        state.set_soft_drop(false);
+        state.soft_drop_step();
+        assert_eq!(sounds(&mut state), [SoundEffect::SoftDrop]);
+    }
+
+    #[test]
+    fn test_hold_sounds_only_when_allowed() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(Tetrimino::at_generation(TetriminoType::T, 10));
+        state.hold_piece();
+        state.hold_piece();
+        let held = sounds(&mut state);
+        assert_eq!(held.iter().filter(|e| **e == SoundEffect::Hold).count(), 1);
+    }
+
+    #[test]
+    fn test_line_clears_sound_by_number_of_lines() {
+        for lines in 1..=4 {
+            let mut state = new_state();
+            for y in (20 - lines)..20 {
+                fill_row_except(&mut state, y, &[0]);
+            }
+            state.phase = Phase::Falling(piece(TetriminoType::I, -2, 16, Facing::East));
+            state.lock_current_piece();
+            assert_eq!(
+                sounds(&mut state),
+                [SoundEffect::LineClear(lines as u32)],
+                "{lines} lines"
+            );
+        }
+    }
+
+    #[test]
+    fn test_tspin_sound_replaces_line_clear_and_back_to_back_follows() {
+        let mut state = new_state();
+        do_tetris(&mut state);
+        sounds(&mut state);
+        state.board = Board::new(10, 20);
+        do_tspin_double(&mut state);
+        assert_eq!(
+            sounds(&mut state),
+            [
+                SoundEffect::Rotate,
+                SoundEffect::TSpin,
+                SoundEffect::BackToBack
+            ]
+        );
+    }
+
+    #[test]
+    fn test_level_up_and_marathon_complete_sound() {
+        let mut state = new_state();
+        state.scoring.lines_until_next_level = 4;
+        do_tetris(&mut state);
+        assert_eq!(
+            sounds(&mut state),
+            [SoundEffect::LineClear(4), SoundEffect::LevelUp]
+        );
+
+        let mut state = GameState::new(GameConfig {
+            starting_level: 15,
+            ..config()
+        });
+        state.scoring.lines_until_next_level = 4;
+        do_tetris(&mut state);
+        assert_eq!(
+            sounds(&mut state),
+            [SoundEffect::LineClear(4), SoundEffect::MarathonComplete]
+        );
+    }
+
+    #[test]
+    fn test_game_over_sounds_for_top_outs_but_not_for_quitting() {
+        let mut state = new_state();
+        state.next_pieces[0] = TetriminoType::T;
+        fill(&mut state, &[(4, -1)]);
+        state.spawn_piece();
+        assert_eq!(sounds(&mut state), [SoundEffect::GameOver]);
+
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, -3, Facing::North));
+        state.lock_current_piece();
+        assert_eq!(sounds(&mut state), [SoundEffect::GameOver]);
+
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, Facing::North));
+        state.quit();
+        assert!(sounds(&mut state).is_empty());
+    }
+
+    #[test]
+    fn test_taking_sounds_clears_them() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::T, 3, 5, Facing::North));
+        state.shift_piece(1);
+        assert_eq!(sounds(&mut state).len(), 1);
+        assert!(sounds(&mut state).is_empty());
     }
 
     // --- Phases ---

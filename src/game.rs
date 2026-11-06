@@ -34,11 +34,12 @@ pub struct Game {
 impl Game {
     pub fn new(config: GameConfig) -> Result<Self> {
         let renderer = Renderer::new()?;
-        let audio = if config.enable_sound {
+        let mut audio = if config.enable_sound {
             AudioPlayer::new()
         } else {
             AudioPlayer::no_sound()
         };
+        audio.set_effects_volume(0.4);
 
         Ok(Self {
             menu: Menu::new(&config),
@@ -100,6 +101,7 @@ impl Game {
 
             self.handle_pending_input(&mut session);
             session.update(dt);
+            self.play_sound_effects(&mut session);
             self.renderer.render(session.state(), session.screen())?;
 
             if session.state().is_game_over() {
@@ -113,8 +115,16 @@ impl Game {
         }
     }
 
+    fn play_sound_effects(&mut self, session: &mut Session) {
+        for effect in session.take_sound_effects() {
+            if self.config.enable_sound_effects {
+                self.audio.play_effect(effect);
+            }
+        }
+    }
+
     fn start_music(&mut self) {
-        if THEME.is_empty() {
+        if !self.config.enable_music || THEME.is_empty() {
             return;
         }
         self.audio.set_volume(0.5);

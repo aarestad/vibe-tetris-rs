@@ -8,5 +8,6 @@ pub mod menu;
 pub mod scoring;
 pub mod screen;
 pub mod session;
+pub mod sound;
 pub mod tetrimino;
 pub mod ui;

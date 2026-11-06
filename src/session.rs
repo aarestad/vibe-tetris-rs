@@ -2,6 +2,7 @@ use crate::config::GameConfig;
 use crate::game_state::GameState;
 use crate::input::{AutoRepeat, InputAction, InputEvent};
 use crate::screen::Screen;
+use crate::sound::SoundEffect;
 use std::time::Duration;
 
 /// A change the music should make because of an input.
@@ -59,6 +60,11 @@ impl Session {
 
     pub fn screen(&self) -> Screen {
         self.screen
+    }
+
+    /// Returns and clears the sounds for events since the last call.
+    pub fn take_sound_effects(&mut self) -> Vec<SoundEffect> {
+        self.state.take_sound_effects()
     }
 
     /// Applies one input event. Returns a change for the music to make, if there is one.
@@ -123,7 +129,11 @@ impl Session {
     }
 
     fn press_direction(&mut self, direction: i32) {
-        self.state.shift_piece(direction);
+        // Only a pressed key sounds blocked. Auto-Repeat against a wall stays quiet.
+        let moved = self.state.shift_piece(direction);
+        if !moved && self.state.current_piece().is_some() {
+            self.state.sound_effects.push(SoundEffect::MoveBlocked);
+        }
         if self.key_release_events {
             self.auto_repeat.press(direction);
         }
@@ -428,6 +438,61 @@ mod tests {
         run_for(&mut session, ms(500));
         assert_eq!(piece(&session).y, 5);
         assert_eq!(session.state().scoring.score, 0);
+    }
+
+    // --- Sound effects ---
+
+    #[test]
+    fn test_pressing_into_a_wall_sounds_blocked_but_auto_repeat_does_not() {
+        let mut session = session(true);
+        session.state.phase = Phase::Falling(Tetrimino { x: 0, ..t_piece() });
+        session.handle_input(press(MoveLeft));
+        assert_eq!(session.take_sound_effects(), [SoundEffect::MoveBlocked]);
+
+        run_for(&mut session, ms(800));
+        assert!(
+            !session
+                .take_sound_effects()
+                .contains(&SoundEffect::MoveBlocked)
+        );
+    }
+
+    #[test]
+    fn test_auto_repeat_moves_each_sound() {
+        let mut session = session(true);
+        session.handle_input(press(MoveRight));
+        session.handle_input(release(MoveRight));
+        assert_eq!(session.take_sound_effects(), [SoundEffect::Move]);
+
+        session.handle_input(press(MoveRight));
+        run_for(&mut session, ms(800));
+        let moves = session
+            .take_sound_effects()
+            .into_iter()
+            .filter(|effect| *effect == SoundEffect::Move)
+            .count();
+        // From column 4, a T reaches the wall at column 7 with one press and two repeats.
+        assert_eq!(moves, 3);
+    }
+
+    #[test]
+    fn test_no_sounds_while_paused_or_in_help() {
+        for opener in [Pause, ToggleHelp] {
+            let mut session = session(false);
+            session.handle_input(press(opener));
+            for action in [MoveLeft, RotateClockwise, HardDrop, Hold] {
+                session.handle_input(press(action));
+            }
+            run_for(&mut session, ms(2000));
+            assert!(session.take_sound_effects().is_empty(), "{opener:?}");
+        }
+    }
+
+    #[test]
+    fn test_no_blocked_sound_without_a_piece() {
+        let mut session = Session::new(GameConfig::default());
+        session.handle_input(press(MoveLeft));
+        assert!(session.take_sound_effects().is_empty());
     }
 
     // --- Quit ---
