@@ -1,7 +1,15 @@
-use crate::config::{GameConfig, GameMode};
+use crate::config::{GameConfig, GameMode, LockDownMode};
 
 /// Modes in the order the menu shows them (Guideline 12).
 const MODES: [GameMode; 3] = [GameMode::Marathon, GameMode::Sprint, GameMode::Ultra];
+/// Lock Down rulesets in the order the Options page shows them (Guideline 2.5.4).
+const LOCK_DOWN_MODES: [LockDownMode; 3] = [
+    LockDownMode::Extended,
+    LockDownMode::Infinite,
+    LockDownMode::Classic,
+];
+/// Next Queue sizes the Options page offers (Guideline 2.5.1).
+const PREVIEW_COUNTS: [usize; 6] = [1, 2, 3, 4, 5, 6];
 
 const MIN_LEVEL: u32 = 1;
 /// Levels range from 1 to 15 (Guideline 2.3.3).
@@ -26,20 +34,55 @@ pub enum MenuItem {
     GameMode,
     StartingLevel,
     GoalSystem,
+    Options,
     Help,
     Quit,
 }
 
 impl MenuItem {
     /// All items in the order shown.
-    pub const ALL: [MenuItem; 6] = [
+    pub const ALL: [MenuItem; 7] = [
         MenuItem::NewGame,
         MenuItem::GameMode,
         MenuItem::StartingLevel,
         MenuItem::GoalSystem,
+        MenuItem::Options,
         MenuItem::Help,
         MenuItem::Quit,
     ];
+}
+
+/// One line of the Options page (Guideline 2.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionItem {
+    NextQueue,
+    Hold,
+    GhostPiece,
+    LockDown,
+    Music,
+    SoundEffects,
+    Back,
+}
+
+impl OptionItem {
+    /// All items in the order shown.
+    pub const ALL: [OptionItem; 7] = [
+        OptionItem::NextQueue,
+        OptionItem::Hold,
+        OptionItem::GhostPiece,
+        OptionItem::LockDown,
+        OptionItem::Music,
+        OptionItem::SoundEffects,
+        OptionItem::Back,
+    ];
+}
+
+/// The page of the menu on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuPage {
+    Main,
+    Options,
+    Help,
 }
 
 /// What should happen after a menu input.
@@ -47,33 +90,82 @@ impl MenuItem {
 pub enum MenuResult {
     Stay,
     StartGame,
+    /// An option changed, so the settings should be saved.
+    OptionsChanged,
     Exit,
+}
+
+/// The settings on the Options page (Guideline 2.5). Unlike the Main Menu choices, these are
+/// saved to the config file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    pub preview_count: usize,
+    pub enable_hold: bool,
+    pub enable_ghost_piece: bool,
+    pub lock_down_mode: LockDownMode,
+    pub enable_music: bool,
+    pub enable_sound_effects: bool,
+}
+
+impl Options {
+    pub fn from_config(config: &GameConfig) -> Self {
+        Self {
+            preview_count: config.preview_count,
+            enable_hold: config.enable_hold,
+            enable_ghost_piece: config.enable_ghost_piece,
+            lock_down_mode: config.lock_down_mode,
+            enable_music: config.enable_music,
+            enable_sound_effects: config.enable_sound_effects,
+        }
+    }
+
+    /// Copies these settings into a config, leaving its other fields alone.
+    pub fn apply_to(&self, config: &mut GameConfig) {
+        config.preview_count = self.preview_count;
+        config.enable_hold = self.enable_hold;
+        config.enable_ghost_piece = self.enable_ghost_piece;
+        config.lock_down_mode = self.lock_down_mode;
+        config.enable_music = self.enable_music;
+        config.enable_sound_effects = self.enable_sound_effects;
+    }
 }
 
 /// The Main Menu (Guideline 2.3). Its choices last until the program exits.
 #[derive(Debug, Clone)]
 pub struct Menu {
+    page: MenuPage,
     selected: usize,
+    selected_option: usize,
     game_mode: GameMode,
     starting_level: u32,
     variable_goal: bool,
-    showing_help: bool,
+    options: Options,
 }
 
 impl Menu {
     /// Opens on New Game, with choices starting from the config file's settings.
     pub fn new(config: &GameConfig) -> Self {
         Self {
+            page: MenuPage::Main,
             selected: 0,
+            selected_option: 0,
             game_mode: config.game_mode,
             starting_level: config.starting_level,
             variable_goal: config.enable_variable_goal,
-            showing_help: false,
+            options: Options::from_config(config),
         }
+    }
+
+    pub fn page(&self) -> MenuPage {
+        self.page
     }
 
     pub fn selected_item(&self) -> MenuItem {
         MenuItem::ALL[self.selected]
+    }
+
+    pub fn selected_option(&self) -> OptionItem {
+        OptionItem::ALL[self.selected_option]
     }
 
     pub fn game_mode(&self) -> GameMode {
@@ -88,18 +180,20 @@ impl Menu {
         self.variable_goal
     }
 
-    pub fn showing_help(&self) -> bool {
-        self.showing_help
+    pub fn options(&self) -> Options {
+        self.options
     }
 
     /// The settings for a new game: the config file's, with this menu's choices applied.
     pub fn game_config(&self, base: &GameConfig) -> GameConfig {
-        GameConfig {
+        let mut config = GameConfig {
             game_mode: self.game_mode,
             starting_level: self.starting_level,
             enable_variable_goal: self.variable_goal,
             ..base.clone()
-        }
+        };
+        self.options.apply_to(&mut config);
+        config
     }
 
     /// Applies one input and says what should happen next.
@@ -107,16 +201,23 @@ impl Menu {
         if input == MenuInput::Quit {
             return MenuResult::Exit;
         }
-        if self.showing_help {
-            if matches!(input, MenuInput::Back | MenuInput::Select) {
-                self.showing_help = false;
+        match self.page {
+            MenuPage::Main => self.handle_main_input(input),
+            MenuPage::Options => self.handle_options_input(input),
+            MenuPage::Help => {
+                if matches!(input, MenuInput::Back | MenuInput::Select) {
+                    self.page = MenuPage::Main;
+                }
+                MenuResult::Stay
             }
-            return MenuResult::Stay;
         }
+    }
 
+    fn handle_main_input(&mut self, input: MenuInput) -> MenuResult {
+        let count = MenuItem::ALL.len();
         match input {
-            MenuInput::Up => self.move_selection(MenuItem::ALL.len() - 1),
-            MenuInput::Down => self.move_selection(1),
+            MenuInput::Up => self.selected = (self.selected + count - 1) % count,
+            MenuInput::Down => self.selected = (self.selected + 1) % count,
             MenuInput::Left => self.change_value(false),
             MenuInput::Right => self.change_value(true),
             MenuInput::Select => return self.select(),
@@ -125,17 +226,17 @@ impl Menu {
         MenuResult::Stay
     }
 
-    fn move_selection(&mut self, steps: usize) {
-        self.selected = (self.selected + steps) % MenuItem::ALL.len();
-    }
-
     fn select(&mut self) -> MenuResult {
         match self.selected_item() {
             MenuItem::NewGame => return MenuResult::StartGame,
             MenuItem::GameMode | MenuItem::StartingLevel | MenuItem::GoalSystem => {
                 self.change_value(true)
             }
-            MenuItem::Help => self.showing_help = true,
+            MenuItem::Options => {
+                self.page = MenuPage::Options;
+                self.selected_option = 0;
+            }
+            MenuItem::Help => self.page = MenuPage::Help,
             MenuItem::Quit => return MenuResult::Exit,
         }
         MenuResult::Stay
@@ -144,12 +245,7 @@ impl Menu {
     /// Changes the selected item's value, wrapping around at either end.
     fn change_value(&mut self, forward: bool) {
         match self.selected_item() {
-            MenuItem::GameMode => {
-                let index = MODES.iter().position(|mode| *mode == self.game_mode);
-                let index = index.unwrap_or(0);
-                let steps = if forward { 1 } else { MODES.len() - 1 };
-                self.game_mode = MODES[(index + steps) % MODES.len()];
-            }
+            MenuItem::GameMode => self.game_mode = cycle(&MODES, self.game_mode, forward),
             MenuItem::StartingLevel => {
                 self.starting_level = match (forward, self.starting_level) {
                     (true, MAX_LEVEL) => MIN_LEVEL,
@@ -161,9 +257,57 @@ impl Menu {
             // Only a Marathon Levels Up, so only it has a Goal System to choose.
             MenuItem::GoalSystem if self.game_mode != GameMode::Marathon => {}
             MenuItem::GoalSystem => self.variable_goal = !self.variable_goal,
-            MenuItem::NewGame | MenuItem::Help | MenuItem::Quit => {}
+            MenuItem::NewGame | MenuItem::Options | MenuItem::Help | MenuItem::Quit => {}
         }
     }
+
+    fn handle_options_input(&mut self, input: MenuInput) -> MenuResult {
+        let count = OptionItem::ALL.len();
+        match input {
+            MenuInput::Up => self.selected_option = (self.selected_option + count - 1) % count,
+            MenuInput::Down => self.selected_option = (self.selected_option + 1) % count,
+            MenuInput::Back => self.page = MenuPage::Main,
+            MenuInput::Select if self.selected_option() == OptionItem::Back => {
+                self.page = MenuPage::Main;
+            }
+            MenuInput::Left => return self.change_option(false),
+            MenuInput::Right | MenuInput::Select => return self.change_option(true),
+            MenuInput::Quit => {}
+        }
+        MenuResult::Stay
+    }
+
+    /// Changes the selected option, wrapping around at either end.
+    fn change_option(&mut self, forward: bool) -> MenuResult {
+        let item = self.selected_option();
+        let options = &mut self.options;
+        match item {
+            OptionItem::NextQueue => {
+                options.preview_count = cycle(&PREVIEW_COUNTS, options.preview_count, forward);
+            }
+            OptionItem::Hold => options.enable_hold = !options.enable_hold,
+            OptionItem::GhostPiece => options.enable_ghost_piece = !options.enable_ghost_piece,
+            OptionItem::LockDown => {
+                options.lock_down_mode = cycle(&LOCK_DOWN_MODES, options.lock_down_mode, forward);
+            }
+            OptionItem::Music => options.enable_music = !options.enable_music,
+            OptionItem::SoundEffects => {
+                options.enable_sound_effects = !options.enable_sound_effects;
+            }
+            OptionItem::Back => return MenuResult::Stay,
+        }
+        MenuResult::OptionsChanged
+    }
+}
+
+/// The value after `current` in `values`, or before it when going back, wrapping around.
+/// A value not in the list moves to the first one.
+fn cycle<T: Copy + PartialEq>(values: &[T], current: T, forward: bool) -> T {
+    let Some(index) = values.iter().position(|value| *value == current) else {
+        return values[0];
+    };
+    let steps = if forward { 1 } else { values.len() - 1 };
+    values[(index + steps) % values.len()]
 }
 
 #[cfg(test)]
@@ -195,7 +339,7 @@ mod tests {
         assert_eq!(menu.game_mode(), GameMode::Sprint);
         assert_eq!(menu.starting_level(), 6);
         assert!(menu.variable_goal());
-        assert!(!menu.showing_help());
+        assert_eq!(menu.page(), MenuPage::Main);
     }
 
     #[test]
@@ -299,7 +443,12 @@ mod tests {
 
     #[test]
     fn test_left_and_right_only_change_the_selected_item() {
-        for item in [MenuItem::NewGame, MenuItem::Help, MenuItem::Quit] {
+        for item in [
+            MenuItem::NewGame,
+            MenuItem::Options,
+            MenuItem::Help,
+            MenuItem::Quit,
+        ] {
             let mut menu = menu_on(item);
             menu.handle_input(Right);
             menu.handle_input(Left);
@@ -315,10 +464,10 @@ mod tests {
         for closer in [Back, Select] {
             let mut menu = menu_on(MenuItem::Help);
             assert_eq!(menu.handle_input(Select), MenuResult::Stay);
-            assert!(menu.showing_help());
+            assert_eq!(menu.page(), MenuPage::Help);
 
             assert_eq!(menu.handle_input(closer), MenuResult::Stay);
-            assert!(!menu.showing_help());
+            assert_eq!(menu.page(), MenuPage::Main);
             assert_eq!(menu.selected_item(), MenuItem::Help);
         }
     }
@@ -330,7 +479,7 @@ mod tests {
         for input in [Up, Down, Left, Right] {
             assert_eq!(menu.handle_input(input), MenuResult::Stay);
         }
-        assert!(menu.showing_help());
+        assert_eq!(menu.page(), MenuPage::Help);
         assert_eq!(menu.selected_item(), MenuItem::Help);
         assert_eq!(menu.handle_input(Quit), MenuResult::Exit);
     }
@@ -376,5 +525,151 @@ mod tests {
             menu.handle_input(Right);
             assert!(menu.game_config(&base).validate().is_ok());
         }
+    }
+
+    fn options_menu() -> Menu {
+        let mut menu = menu_on(MenuItem::Options);
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+        assert_eq!(menu.page(), MenuPage::Options);
+        menu
+    }
+
+    fn options_menu_on(item: OptionItem) -> Menu {
+        let mut menu = options_menu();
+        while menu.selected_option() != item {
+            menu.handle_input(Down);
+        }
+        menu
+    }
+
+    #[test]
+    fn test_options_open_on_their_first_item_with_config_values() {
+        let menu = options_menu();
+        assert_eq!(menu.selected_option(), OptionItem::NextQueue);
+        assert_eq!(menu.options(), Options::from_config(&GameConfig::default()));
+    }
+
+    #[test]
+    fn test_option_selection_visits_every_item_and_wraps() {
+        let mut menu = options_menu();
+        for item in OptionItem::ALL {
+            assert_eq!(menu.selected_option(), item);
+            menu.handle_input(Down);
+        }
+        assert_eq!(menu.selected_option(), OptionItem::NextQueue);
+        menu.handle_input(Up);
+        assert_eq!(menu.selected_option(), OptionItem::Back);
+    }
+
+    #[test]
+    fn test_next_queue_offers_1_to_6_and_wraps() {
+        let mut menu = options_menu_on(OptionItem::NextQueue);
+        for count in [4, 5, 6, 1, 2, 3] {
+            assert_eq!(menu.handle_input(Right), MenuResult::OptionsChanged);
+            assert_eq!(menu.options().preview_count, count);
+        }
+        menu.handle_input(Left);
+        assert_eq!(menu.options().preview_count, 2);
+    }
+
+    #[test]
+    fn test_lock_down_cycles_through_all_three_rulesets() {
+        let mut menu = options_menu_on(OptionItem::LockDown);
+        for mode in [
+            LockDownMode::Infinite,
+            LockDownMode::Classic,
+            LockDownMode::Extended,
+        ] {
+            menu.handle_input(Right);
+            assert_eq!(menu.options().lock_down_mode, mode);
+        }
+        menu.handle_input(Left);
+        assert_eq!(menu.options().lock_down_mode, LockDownMode::Classic);
+    }
+
+    #[test]
+    fn test_on_off_options_toggle_with_any_change_key() {
+        type Get = fn(&Options) -> bool;
+        let cases: [(OptionItem, Get); 4] = [
+            (OptionItem::Hold, |o| o.enable_hold),
+            (OptionItem::GhostPiece, |o| o.enable_ghost_piece),
+            (OptionItem::Music, |o| o.enable_music),
+            (OptionItem::SoundEffects, |o| o.enable_sound_effects),
+        ];
+        for (item, get) in cases {
+            let mut menu = options_menu_on(item);
+            for (input, expected) in [(Right, false), (Left, true), (Select, false)] {
+                assert_eq!(menu.handle_input(input), MenuResult::OptionsChanged);
+                assert_eq!(get(&menu.options()), expected, "{item:?} {input:?}");
+            }
+            // Only the selected option changed.
+            let mut expected = Options::from_config(&GameConfig::default());
+            match item {
+                OptionItem::Hold => expected.enable_hold = false,
+                OptionItem::GhostPiece => expected.enable_ghost_piece = false,
+                OptionItem::Music => expected.enable_music = false,
+                _ => expected.enable_sound_effects = false,
+            }
+            assert_eq!(menu.options(), expected, "{item:?}");
+        }
+    }
+
+    #[test]
+    fn test_back_item_and_esc_leave_options_without_changing_them() {
+        let mut menu = options_menu_on(OptionItem::Back);
+        for input in [Left, Right] {
+            assert_eq!(menu.handle_input(input), MenuResult::Stay);
+        }
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+        assert_eq!(menu.page(), MenuPage::Main);
+        assert_eq!(menu.selected_item(), MenuItem::Options);
+
+        let mut menu = options_menu_on(OptionItem::Music);
+        assert_eq!(menu.handle_input(Back), MenuResult::Stay);
+        assert_eq!(menu.page(), MenuPage::Main);
+        assert_eq!(menu.options(), Options::from_config(&GameConfig::default()));
+    }
+
+    #[test]
+    fn test_quit_exits_from_options() {
+        assert_eq!(options_menu().handle_input(Quit), MenuResult::Exit);
+    }
+
+    #[test]
+    fn test_options_reach_the_game_config_and_can_be_saved() {
+        let base = GameConfig {
+            starting_level: 7,
+            ..GameConfig::default()
+        };
+        let mut menu = Menu::new(&base);
+        menu.handle_input(Down);
+        menu.handle_input(Right);
+        while menu.selected_item() != MenuItem::Options {
+            menu.handle_input(Down);
+        }
+        menu.handle_input(Select);
+        menu.handle_input(Right);
+        menu.handle_input(Down);
+        menu.handle_input(Right);
+
+        let config = menu.game_config(&base);
+        assert_eq!(config.preview_count, 4);
+        assert!(!config.enable_hold);
+        assert_eq!(config.game_mode, GameMode::Sprint);
+        assert!(config.validate().is_ok());
+
+        // Saving takes only the options, not the Main Menu choices.
+        let mut saved = base.clone();
+        menu.options().apply_to(&mut saved);
+        assert_eq!(saved.preview_count, 4);
+        assert!(!saved.enable_hold);
+        assert_eq!(saved.game_mode, GameMode::Marathon);
+        assert_eq!(saved.starting_level, 7);
+    }
+
+    #[test]
+    fn test_cycle_moves_an_unknown_value_to_the_first() {
+        assert_eq!(cycle(&PREVIEW_COUNTS, 9, true), 1);
+        assert_eq!(cycle(&PREVIEW_COUNTS, 1, false), 6);
     }
 }

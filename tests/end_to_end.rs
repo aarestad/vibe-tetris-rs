@@ -312,6 +312,26 @@ impl Terminal {
         raw.windows(sequence.len())
             .any(|window| window == sequence.as_bytes())
     }
+
+    /// Filled cells right of the Matrix, where the Next Queue is drawn.
+    fn next_queue_cells(&self) -> usize {
+        let parser = self.parser.lock().unwrap();
+        let screen = parser.screen();
+        let start = MATRIX_LEFT + MATRIX_COLUMNS * 2 + 1;
+        (0..HEIGHT)
+            .flat_map(|row| (start..WIDTH).map(move |column| (row, column)))
+            .filter(|(row, column)| {
+                screen
+                    .cell(*row, *column)
+                    .is_some_and(|cell| cell.contents() == "█")
+            })
+            .count()
+    }
+
+    /// The config file as the program last saved it.
+    fn config_file(&self) -> String {
+        fs::read_to_string(self._config.0.join("tetris_config.json")).unwrap_or_default()
+    }
 }
 
 impl Drop for Terminal {
@@ -475,6 +495,40 @@ fn test_config_file_sets_the_menu_starting_choices() {
     );
     terminal.wait_for_text("Starting Level: < 9 >");
     terminal.wait_for_text("Goal: < Variable >");
+}
+
+#[test]
+fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
+    let terminal = Terminal::start_at_menu();
+    for _ in 0..3 {
+        terminal.send(UP);
+    }
+    terminal.wait_for_text("> Options");
+    terminal.send(ENTER);
+    terminal.wait_for_text("OPTIONS");
+
+    terminal.send(LEFT);
+    terminal.wait_for_text("> Next Queue: < 2 >");
+    terminal.send(DOWN);
+    terminal.send(RIGHT);
+    terminal.wait_for_text("> Hold: < Off >");
+    terminal.wait_for("the options to be saved", |t| {
+        let file = t.config_file();
+        file.contains("\"preview_count\": 2") && file.contains("\"enable_hold\": false")
+    });
+    // Settings the Options page does not show are kept.
+    assert!(terminal.config_file().contains("\"enable_sound\": false"));
+
+    terminal.send("\x1b");
+    terminal.wait_for_text("> Options");
+    for _ in 0..4 {
+        terminal.send(UP);
+    }
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    // Two Tetriminos in the Next Queue, of 4 Minos drawn 2 cells wide each.
+    terminal.wait_for("a Next Queue of 2", |t| t.next_queue_cells() == 16);
 }
 
 #[test]

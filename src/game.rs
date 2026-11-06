@@ -14,6 +14,7 @@ use crossterm::{
     },
 };
 use std::io::{Write, stdout};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 /// About 60 frames per second.
@@ -24,15 +25,19 @@ const GAME_OVER_KEY_GUARD: Duration = Duration::from_millis(500);
 /// Connects the menu and each game's `Session` to the real terminal and sound device. All game
 /// behavior is in those types, so this only moves input, time and drawing between them.
 pub struct Game {
+    /// The settings from the config file, with the Options page's changes applied.
     config: GameConfig,
+    /// Where the Options page saves the settings.
+    config_path: PathBuf,
     menu: Menu,
     renderer: Renderer,
     input: InputHandler,
     audio: AudioPlayer,
+    warnings: Vec<String>,
 }
 
 impl Game {
-    pub fn new(config: GameConfig) -> Result<Self> {
+    pub fn new(config: GameConfig, config_path: PathBuf) -> Result<Self> {
         let renderer = Renderer::new()?;
         let mut audio = if config.enable_sound {
             AudioPlayer::new()
@@ -44,9 +49,11 @@ impl Game {
         Ok(Self {
             menu: Menu::new(&config),
             config,
+            config_path,
             renderer,
             input: InputHandler::new(),
             audio,
+            warnings: Vec::new(),
         })
     }
 
@@ -64,9 +71,11 @@ impl Game {
         Ok(())
     }
 
-    /// Audio messages to show once the terminal is back to normal.
+    /// Audio and saving messages to show once the terminal is back to normal.
     pub fn take_warnings(&mut self) -> Vec<String> {
-        self.audio.take_warnings()
+        let mut warnings = self.audio.take_warnings();
+        warnings.append(&mut self.warnings);
+        warnings
     }
 
     /// Shows the menu until the player chooses. Returns true to start a game, false to exit.
@@ -76,11 +85,24 @@ impl Game {
                 match self.menu.handle_input(input) {
                     MenuResult::Stay => {}
                     MenuResult::StartGame => return Ok(true),
+                    MenuResult::OptionsChanged => self.save_options(),
                     MenuResult::Exit => return Ok(false),
                 }
             }
             self.renderer.render_menu(&self.menu)?;
             std::thread::sleep(FRAME_DURATION);
+        }
+    }
+
+    /// Applies the Options page's settings and saves them to the config file. A failed save
+    /// keeps the settings for this run and is reported when the program exits.
+    fn save_options(&mut self) {
+        self.menu.options().apply_to(&mut self.config);
+        if let Err(error) = self.config.save_to_file(&self.config_path) {
+            let warning = format!("could not save options: {error:#}");
+            if !self.warnings.contains(&warning) {
+                self.warnings.push(warning);
+            }
         }
     }
 

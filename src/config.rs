@@ -111,6 +111,12 @@ impl GameConfig {
         Ok(config)
     }
 
+    /// Writes these settings to a config file as formatted JSON, replacing the file.
+    pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        let json = serde_json::to_string_pretty(self).context("formatting settings")?;
+        fs::write(path, json + "\n").with_context(|| format!("writing {}", path.display()))
+    }
+
     /// Checks that all values can produce a working game.
     pub fn validate(&self) -> Result<()> {
         ensure!(self.board_width >= 4, "board_width must be at least 4");
@@ -216,6 +222,30 @@ mod tests {
     fn test_missing_file_uses_defaults() {
         let config = GameConfig::load_or_default(Path::new("no_such_config.json")).unwrap();
         assert_eq!(config.board_height, 20);
+    }
+
+    #[test]
+    fn test_saved_file_loads_back_the_same_settings() {
+        let path = std::env::temp_dir().join(format!("tetris_save_{}.json", std::process::id()));
+        let config = GameConfig {
+            game_mode: GameMode::Ultra,
+            preview_count: 5,
+            enable_hold: false,
+            lock_down_mode: LockDownMode::Classic,
+            enable_music: false,
+            ..GameConfig::default()
+        };
+        config.save_to_file(&path).unwrap();
+        let loaded = GameConfig::load_from_file(&path);
+        fs::remove_file(&path).ok();
+
+        let loaded = loaded.unwrap();
+        assert_eq!(loaded.game_mode, GameMode::Ultra);
+        assert_eq!(loaded.preview_count, 5);
+        assert!(!loaded.enable_hold);
+        assert_eq!(loaded.lock_down_mode, LockDownMode::Classic);
+        assert!(!loaded.enable_music);
+        assert!(loaded.enable_sound_effects);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use crate::config::GameMode;
+use crate::config::LockDownMode;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
-use crate::menu::{Menu, MenuItem};
+use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
 use crate::scoring::SPRINT_LINES;
 use crate::screen::Screen;
 use crate::tetrimino::{Tetrimino, TetriminoType};
@@ -58,7 +59,7 @@ impl Renderer {
         }
     }
 
-    /// Draws the Main Menu or its help page.
+    /// Draws the Main Menu or its Options or help page.
     pub fn render_menu(&mut self, menu: &Menu) -> Result<()> {
         self.terminal.draw(|f| Self::draw_menu(f, menu))?;
         Ok(())
@@ -67,11 +68,20 @@ impl Renderer {
     fn draw_menu(f: &mut Frame, menu: &Menu) {
         if f.area().width < MENU_MIN_WIDTH || f.area().height < MENU_MIN_HEIGHT {
             Self::draw_size_message(f, MENU_MIN_WIDTH, MENU_MIN_HEIGHT);
-        } else if menu.showing_help() {
-            let lines = Self::controls_lines("Esc to go back");
-            Self::draw_centered_box(f, " CONTROLS ", lines, Alignment::Left);
-        } else {
-            Self::draw_centered_box(f, " TETRIS ", Self::menu_lines(menu), Alignment::Left);
+            return;
+        }
+        match menu.page() {
+            MenuPage::Main => {
+                Self::draw_centered_box(f, " TETRIS ", Self::menu_lines(menu), Alignment::Left);
+            }
+            MenuPage::Options => {
+                let lines = Self::options_lines(menu);
+                Self::draw_centered_box(f, " OPTIONS ", lines, Alignment::Left);
+            }
+            MenuPage::Help => {
+                let lines = Self::controls_lines("Esc to go back");
+                Self::draw_centered_box(f, " CONTROLS ", lines, Alignment::Left);
+            }
         }
     }
 
@@ -101,25 +111,70 @@ impl Renderer {
                         };
                         format!("Goal: < {goal} >")
                     }
+                    MenuItem::Options => "Options".to_string(),
                     MenuItem::Help => "Help".to_string(),
                     MenuItem::Quit => "Quit".to_string(),
                 };
-                if item == menu.selected_item() {
-                    Line::styled(
-                        format!("> {text}"),
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    Line::from(format!("  {text}"))
-                }
+                Self::menu_line(text, item == menu.selected_item())
             })
             .collect();
         lines.push(Line::from(""));
         lines.push(Line::from("↑ ↓ move   ← → change"));
         lines.push(Line::from("Enter to choose"));
         lines
+    }
+
+    /// The Options page (Guideline 2.5). Changes are saved as they are made.
+    fn options_lines(menu: &Menu) -> Vec<Line<'static>> {
+        let options = menu.options();
+        let on_off = |on: bool| if on { "On" } else { "Off" };
+        let mut lines: Vec<Line> = OptionItem::ALL
+            .into_iter()
+            .map(|item| {
+                let text = match item {
+                    OptionItem::NextQueue => format!("Next Queue: < {} >", options.preview_count),
+                    OptionItem::Hold => format!("Hold: < {} >", on_off(options.enable_hold)),
+                    OptionItem::GhostPiece => {
+                        format!("Ghost Piece: < {} >", on_off(options.enable_ghost_piece))
+                    }
+                    OptionItem::LockDown => {
+                        let mode = match options.lock_down_mode {
+                            LockDownMode::Extended => "Extended",
+                            LockDownMode::Infinite => "Infinite",
+                            LockDownMode::Classic => "Classic",
+                        };
+                        format!("Lock Down: < {mode} >")
+                    }
+                    OptionItem::Music => format!("Music: < {} >", on_off(options.enable_music)),
+                    OptionItem::SoundEffects => {
+                        format!(
+                            "Sound Effects: < {} >",
+                            on_off(options.enable_sound_effects)
+                        )
+                    }
+                    OptionItem::Back => "Back".to_string(),
+                };
+                Self::menu_line(text, item == menu.selected_option())
+            })
+            .collect();
+        lines.push(Line::from(""));
+        lines.push(Line::from("↑ ↓ move   ← → change"));
+        lines.push(Line::from("Saved as you change them"));
+        lines
+    }
+
+    /// One line of a menu page, marked when selected.
+    fn menu_line(text: String, selected: bool) -> Line<'static> {
+        if selected {
+            Line::styled(
+                format!("> {text}"),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            Line::from(format!("  {text}"))
+        }
     }
 
     fn mode_name(mode: GameMode) -> &'static str {
@@ -825,6 +880,60 @@ mod tests {
         assert!(screen.contains("Starting Level: < 15 >"));
         assert!(screen.contains("> Goal: < Variable >"));
         assert!(screen.contains("Mode: < Marathon >"));
+    }
+
+    fn options_page() -> Menu {
+        let mut menu = menu();
+        while menu.selected_item() != MenuItem::Options {
+            menu.handle_input(MenuInput::Down);
+        }
+        menu.handle_input(MenuInput::Select);
+        menu
+    }
+
+    #[test]
+    fn test_options_page_lists_every_option_with_its_value() {
+        let menu = options_page();
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        for label in [
+            "OPTIONS",
+            "> Next Queue: < 3 >",
+            "  Hold: < On >",
+            "  Ghost Piece: < On >",
+            "  Lock Down: < Extended >",
+            "  Music: < On >",
+            "  Sound Effects: < On >",
+            "  Back",
+            "Saved as you change them",
+        ] {
+            assert!(screen.contains(label), "{label}:\n{screen}");
+        }
+        assert!(!screen.contains("New Game"));
+    }
+
+    #[test]
+    fn test_longest_option_values_fit_at_the_minimum_menu_size() {
+        let mut menu = options_page();
+        for _ in 0..3 {
+            menu.handle_input(MenuInput::Down);
+        }
+        menu.handle_input(MenuInput::Left);
+        for _ in 0..2 {
+            menu.handle_input(MenuInput::Down);
+        }
+        menu.handle_input(MenuInput::Right);
+        let screen = text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu)
+        }));
+        assert!(screen.contains("Lock Down: < Classic >"), "{screen}");
+        assert!(screen.contains("> Sound Effects: < Off >"), "{screen}");
+        assert!(screen.contains("Saved as you change them"), "{screen}");
+    }
+
+    #[test]
+    fn test_main_menu_lists_options() {
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu())));
+        assert!(screen.contains("  Options"), "{screen}");
     }
 
     #[test]

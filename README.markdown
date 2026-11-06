@@ -8,7 +8,12 @@ Background music is converted at build time and needs `timidity`; without it, th
 with no music.
 
 The game opens on the Main Menu, where you can start a game, choose the mode, starting level and
-goal system, read the controls or quit. After Game Over, any key returns to the menu.
+goal system, change options, read the controls or quit. After Game Over, any key returns to the
+menu.
+
+The Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound
+effects. Each change is saved to `tetris_config.json` right away. The mode, starting level and goal
+system last only until the program exits.
 
 There are three modes:
 
@@ -42,7 +47,8 @@ foot, Ghostty or iTerm2. In other terminals, holding a key uses your system's ke
 ## Configuration
 
 Settings are read from `tetris_config.json` in the current directory. The file is optional, and any
-field left out takes its default. An invalid file stops the game with an error.
+field left out takes its default. An invalid file stops the game with an error. Changing an option
+in the game rewrites the file with every setting filled in.
 
 ```json
 {
