@@ -1,5 +1,8 @@
 use crate::config::{GameConfig, GameMode};
 
+/// Modes in the order the menu shows them (Guideline 12).
+const MODES: [GameMode; 3] = [GameMode::Marathon, GameMode::Sprint, GameMode::Ultra];
+
 const MIN_LEVEL: u32 = 1;
 /// Levels range from 1 to 15 (Guideline 2.3.3).
 const MAX_LEVEL: u32 = 15;
@@ -142,10 +145,10 @@ impl Menu {
     fn change_value(&mut self, forward: bool) {
         match self.selected_item() {
             MenuItem::GameMode => {
-                self.game_mode = match self.game_mode {
-                    GameMode::Marathon => GameMode::Sprint,
-                    GameMode::Sprint => GameMode::Marathon,
-                };
+                let index = MODES.iter().position(|mode| *mode == self.game_mode);
+                let index = index.unwrap_or(0);
+                let steps = if forward { 1 } else { MODES.len() - 1 };
+                self.game_mode = MODES[(index + steps) % MODES.len()];
             }
             MenuItem::StartingLevel => {
                 self.starting_level = match (forward, self.starting_level) {
@@ -155,8 +158,8 @@ impl Menu {
                     (false, level) => level - 1,
                 };
             }
-            // A Sprint's Goal is always its lines, so there is no Goal System to choose.
-            MenuItem::GoalSystem if self.game_mode == GameMode::Sprint => {}
+            // Only a Marathon Levels Up, so only it has a Goal System to choose.
+            MenuItem::GoalSystem if self.game_mode != GameMode::Marathon => {}
             MenuItem::GoalSystem => self.variable_goal = !self.variable_goal,
             MenuItem::NewGame | MenuItem::Help | MenuItem::Quit => {}
         }
@@ -199,26 +202,32 @@ mod tests {
     fn test_game_mode_switches_either_way_and_defaults_to_marathon() {
         let mut menu = menu_on(MenuItem::GameMode);
         assert_eq!(menu.game_mode(), GameMode::Marathon);
-        menu.handle_input(Right);
-        assert_eq!(menu.game_mode(), GameMode::Sprint);
-        menu.handle_input(Right);
-        assert_eq!(menu.game_mode(), GameMode::Marathon);
-        menu.handle_input(Left);
-        assert_eq!(menu.game_mode(), GameMode::Sprint);
+        for mode in [GameMode::Sprint, GameMode::Ultra, GameMode::Marathon] {
+            menu.handle_input(Right);
+            assert_eq!(menu.game_mode(), mode);
+        }
+        for mode in [GameMode::Ultra, GameMode::Sprint, GameMode::Marathon] {
+            menu.handle_input(Left);
+            assert_eq!(menu.game_mode(), mode);
+        }
         assert_eq!(menu.handle_input(Select), MenuResult::Stay);
-        assert_eq!(menu.game_mode(), GameMode::Marathon);
+        assert_eq!(menu.game_mode(), GameMode::Sprint);
     }
 
     #[test]
-    fn test_goal_system_cannot_change_in_sprint() {
-        let mut menu = menu_on(MenuItem::GameMode);
-        menu.handle_input(Right);
-        menu.handle_input(Down);
-        menu.handle_input(Down);
-        assert_eq!(menu.selected_item(), MenuItem::GoalSystem);
-        menu.handle_input(Right);
-        menu.handle_input(Select);
-        assert!(!menu.variable_goal());
+    fn test_goal_system_cannot_change_in_sprint_or_ultra() {
+        for presses in [1, 2] {
+            let mut menu = menu_on(MenuItem::GameMode);
+            for _ in 0..presses {
+                menu.handle_input(Right);
+            }
+            menu.handle_input(Down);
+            menu.handle_input(Down);
+            assert_eq!(menu.selected_item(), MenuItem::GoalSystem);
+            menu.handle_input(Right);
+            menu.handle_input(Select);
+            assert!(!menu.variable_goal(), "{:?}", menu.game_mode());
+        }
     }
 
     #[test]

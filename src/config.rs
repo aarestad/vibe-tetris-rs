@@ -25,6 +25,8 @@ pub enum GameMode {
     Marathon,
     /// Clear 40 lines as fast as possible, with no Level Up (Guideline 12.2).
     Sprint,
+    /// Score as many points as possible in three minutes, with no Level Up (Guideline 12.3).
+    Ultra,
 }
 
 /// Game settings. Any field missing from the config file takes its default.
@@ -35,17 +37,19 @@ pub struct GameConfig {
     pub board_width: usize,
     /// Matrix height in cells, not counting the Buffer Zone. The Guideline standard is 20.
     pub board_height: usize,
-    /// Marathon or Sprint.
+    /// Marathon, Sprint or Ultra.
     pub game_mode: GameMode,
     /// Level to start from, 1 to 15. Higher starts raise the first Goal.
     pub starting_level: u32,
-    /// Lines per level in the Fixed Goal System. Sprint ignores it. The Guideline standard is 10.
+    /// Lines per level in the Fixed Goal System. Sprint and Ultra ignore it.
+    /// The Guideline standard is 10.
     pub lines_per_level: u32,
     /// Shows where the Tetrimino in play will land.
     pub enable_ghost_piece: bool,
     /// Allows the Hold command.
     pub enable_hold: bool,
-    /// Uses the Variable Goal System instead of the Fixed Goal System. Sprint ignores it.
+    /// Uses the Variable Goal System instead of the Fixed Goal System. Sprint and Ultra
+    /// ignore it.
     pub enable_variable_goal: bool,
     /// Opens the sound device. When false, the game is silent whatever the other settings.
     pub enable_sound: bool,
@@ -161,6 +165,8 @@ mod tests {
         assert_eq!(GameConfig::default().game_mode, GameMode::Marathon);
         let config: GameConfig = serde_json::from_str(r#"{"game_mode": "sprint"}"#).unwrap();
         assert_eq!(config.game_mode, GameMode::Sprint);
+        let config: GameConfig = serde_json::from_str(r#"{"game_mode": "ultra"}"#).unwrap();
+        assert_eq!(config.game_mode, GameMode::Ultra);
     }
 
     #[test]

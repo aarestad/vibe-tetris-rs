@@ -1,7 +1,8 @@
 //! Plays many games with random input and checks that the rules always hold.
 
 use std::time::Duration;
-use tetris_rs::config::{GameConfig, LockDownMode};
+use tetris_rs::config::{GameConfig, GameMode, LockDownMode};
+use tetris_rs::game_state::ULTRA_TIME;
 use tetris_rs::input::{InputAction, InputEvent};
 use tetris_rs::session::Session;
 
@@ -68,6 +69,12 @@ fn play(config: GameConfig, key_release_events: bool, seed: u64) {
             assert!(state.board().is_valid_position(&piece), "{piece:?}");
         }
         assert!((1..=15).contains(&state.scoring().level));
+        if state.config().game_mode != GameMode::Marathon {
+            assert_eq!(state.scoring().level, state.config().starting_level);
+        }
+        if state.config().game_mode == GameMode::Ultra {
+            assert!(state.elapsed() <= ULTRA_TIME);
+        }
         assert_eq!(state.next_pieces().len(), state.config().preview_count);
 
         if state.is_game_over() {
@@ -83,10 +90,12 @@ fn test_random_play_keeps_rules_in_every_mode() {
         LockDownMode::Infinite,
         LockDownMode::Classic,
     ];
+    let game_modes = [GameMode::Marathon, GameMode::Sprint, GameMode::Ultra];
     for seed in 0..30 {
         for lock_down_mode in modes {
             for enable_variable_goal in [false, true] {
                 let config = GameConfig {
+                    game_mode: game_modes[seed as usize % game_modes.len()],
                     lock_down_mode,
                     enable_variable_goal,
                     enable_sound: false,

@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 use tetris_rs::config::{GameConfig, GameMode};
-use tetris_rs::game_state::{GameOutcome, GameState};
+use tetris_rs::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use tetris_rs::input::{InputAction, InputEvent};
 use tetris_rs::session::Session;
 use tetris_rs::tetrimino::{Facing, Tetrimino};
@@ -128,7 +128,8 @@ fn play_game(config: GameConfig, seed: u64) -> Session {
 
     for _ in 0..MAX_PIECES {
         // Run frames until the next Tetrimino is in play, checking the rules on the way.
-        while session.state().current_piece().is_none() {
+        // An Ultra can end on time between Tetriminos, leaving none in play.
+        while session.state().current_piece().is_none() && !session.state().is_game_over() {
             session.update(FRAME);
         }
         if session.state().is_game_over() {
@@ -240,5 +241,26 @@ fn test_skilled_sprint_ends_on_40_lines_at_its_starting_level() {
         // The last clear can overshoot by up to 3.
         assert!((40..=43).contains(&state.scoring().lines_cleared), "{seed}");
         assert!(state.elapsed() > Duration::ZERO, "{seed}");
+    }
+}
+
+#[test]
+fn test_skilled_ultra_lasts_three_minutes_at_its_starting_level() {
+    for seed in SEEDS {
+        let session = play_game(
+            GameConfig {
+                game_mode: GameMode::Ultra,
+                starting_level: 5,
+                ..config()
+            },
+            seed,
+        );
+        let state = session.state();
+
+        assert_eq!(state.outcome(), Some(GameOutcome::UltraComplete), "{seed}");
+        assert_eq!(state.elapsed(), ULTRA_TIME, "{seed}");
+        // An Ultra does not Level Up (Guideline 12.3).
+        assert_eq!(state.scoring().level, 5, "{seed}");
+        assert!(state.scoring().lines_cleared >= 40, "{seed}");
     }
 }

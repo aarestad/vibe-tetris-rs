@@ -8,6 +8,8 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::time::Duration;
 
+/// Length of an Ultra. Guideline 12.3 allows two or three minutes.
+pub const ULTRA_TIME: Duration = Duration::from_secs(180);
 /// Time a landed Tetrimino has before it Locks Down (Guideline 5.7).
 const LOCK_DELAY: Duration = Duration::from_millis(500);
 /// Moves or rotations allowed per lowest row in Extended Placement (Guideline 5.7).
@@ -60,6 +62,8 @@ pub enum GameOutcome {
     MarathonComplete,
     /// The player cleared all the lines of a Sprint.
     SprintComplete,
+    /// An Ultra's time ran out.
+    UltraComplete,
 }
 
 /// The stage a game is in. Each Tetrimino goes through these in turn (Guideline A1.1).
@@ -188,6 +192,10 @@ impl GameState {
             return;
         }
         self.elapsed += dt;
+        if self.config.game_mode == GameMode::Ultra && self.elapsed >= ULTRA_TIME {
+            self.end_ultra();
+            return;
+        }
         self.update_notification(dt);
 
         match &mut self.phase {
@@ -210,6 +218,20 @@ impl GameState {
             }
             Phase::GameOver { .. } => {}
         }
+    }
+
+    /// Ends an Ultra when its time runs out (Guideline 12.3). Lines already clearing still
+    /// score, and the Tetrimino in play stays on screen.
+    fn end_ultra(&mut self) {
+        self.elapsed = ULTRA_TIME;
+        if matches!(self.phase, Phase::LineClear(_)) {
+            self.complete_line_clear();
+        }
+        self.sound_effects.push(SoundEffect::GameComplete);
+        self.phase = Phase::GameOver {
+            outcome: GameOutcome::UltraComplete,
+            piece: self.falling_piece(),
+        };
     }
 
     /// The Tetrimino in play, if the game is in the Falling phase.
@@ -571,6 +593,7 @@ impl GameState {
                 outcome: match self.config.game_mode {
                     GameMode::Marathon => GameOutcome::MarathonComplete,
                     GameMode::Sprint => GameOutcome::SprintComplete,
+                    GameMode::Ultra => GameOutcome::UltraComplete,
                 },
                 piece: None,
             }
@@ -1651,6 +1674,62 @@ mod tests {
         state.scoring.lines_until_next_level = 4;
         do_tetris(&mut state);
         assert_eq!(state.outcome(), Some(GameOutcome::MarathonComplete));
+    }
+
+    fn ultra_state() -> GameState {
+        GameState::new(GameConfig {
+            game_mode: GameMode::Ultra,
+            ..config()
+        })
+    }
+
+    #[test]
+    fn test_ultra_ends_when_time_runs_out_with_the_piece_left_on_screen() {
+        let mut state = ultra_state();
+        state.tick(Duration::ZERO);
+        let piece = state.current_piece();
+        assert!(piece.is_some());
+
+        state.elapsed = ULTRA_TIME - Duration::from_millis(20);
+        state.tick(Duration::from_millis(16));
+        assert!(!state.is_game_over());
+        state.take_sound_effects();
+
+        state.tick(Duration::from_millis(16));
+        assert_eq!(state.outcome(), Some(GameOutcome::UltraComplete));
+        assert_eq!(state.elapsed(), ULTRA_TIME);
+        assert_eq!(sounds(&mut state), [SoundEffect::GameComplete]);
+        assert_eq!(state.current_piece().map(|p| p.kind), piece.map(|p| p.kind));
+
+        state.tick(Duration::from_secs(5));
+        assert_eq!(state.elapsed(), ULTRA_TIME);
+    }
+
+    #[test]
+    fn test_ultra_scores_lines_still_clearing_when_time_runs_out() {
+        let mut state = ultra_state();
+        for y in 16..20 {
+            fill_row_except(&mut state, y, &[0]);
+        }
+        state.phase = Phase::Falling(piece(TetriminoType::I, -2, 16, Facing::East));
+        state.lock_current_piece();
+        assert!(state.line_clear_animation().is_some());
+
+        state.tick(ULTRA_TIME);
+        assert_eq!(state.outcome(), Some(GameOutcome::UltraComplete));
+        assert_eq!(state.scoring.lines_cleared, 4);
+        assert_eq!(state.scoring.score, 800);
+        assert_eq!(state.current_piece(), None);
+    }
+
+    #[test]
+    fn test_ultra_does_not_end_on_lines() {
+        let mut state = ultra_state();
+        for _ in 0..20 {
+            do_tetris(&mut state);
+        }
+        assert!(!state.is_game_over());
+        assert_eq!(state.scoring.level, 1);
     }
 
     #[test]

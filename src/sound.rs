@@ -32,7 +32,7 @@ pub enum SoundEffect {
     BackToBack,
     LevelUp,
     GameOver,
-    /// The player finished a Marathon or a Sprint.
+    /// The player finished a Marathon or a Sprint, or an Ultra's time ran out.
     GameComplete,
 }
 

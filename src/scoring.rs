@@ -19,6 +19,7 @@ pub struct ActionResult {
     /// Text to announce, if the Guideline wants this action announced (Guideline 13.1.5).
     pub notification: Option<String>,
     /// True if this action finished the game: the final Marathon level, or the Sprint's lines.
+    /// An Ultra ends on time instead, so its actions never finish it.
     pub game_complete: bool,
     /// True if this action earned the Back-to-Back bonus.
     pub back_to_back: bool,
@@ -130,9 +131,11 @@ impl Scoring {
     }
 
     /// First Goal of a game. Starting higher includes the levels skipped (Guideline 6).
-    /// A Sprint has only this Goal.
+    /// A Sprint has only this Goal, and an Ultra has none.
     fn starting_goal(&self) -> u32 {
-        if self.mode == GameMode::Sprint {
+        if self.mode == GameMode::Ultra {
+            0
+        } else if self.mode == GameMode::Sprint {
             SPRINT_LINES
         } else if self.variable_goal {
             5 * self.level
@@ -143,6 +146,10 @@ impl Scoring {
 
     /// Applies credit toward the Goal. Returns true if it finished the game.
     fn advance_goal(&mut self, credit: u32) -> bool {
+        // An Ultra never Levels Up and has no Goal (Guideline 12.3).
+        if self.mode == GameMode::Ultra {
+            return false;
+        }
         // A Sprint never Levels Up (Guideline 12.2).
         if self.mode == GameMode::Sprint {
             self.lines_until_next_level = self.lines_until_next_level.saturating_sub(credit);
@@ -498,6 +505,23 @@ mod tests {
         let mut scoring = sprint(3, false);
         scoring.award_action(TSpin::None, 4);
         assert_eq!(scoring.score, 800 * 3);
+    }
+
+    #[test]
+    fn test_ultra_never_levels_up_or_completes() {
+        let mut scoring = scoring_with(GameConfig {
+            game_mode: GameMode::Ultra,
+            starting_level: 4,
+            enable_variable_goal: true,
+            ..GameConfig::default()
+        });
+        for _ in 0..100 {
+            let result = scoring.award_action(TSpin::None, 4);
+            assert!(!result.game_complete && !result.level_up);
+        }
+        assert_eq!(scoring.level, 4);
+        assert_eq!(scoring.lines_cleared, 400);
+        assert_eq!(scoring.score, 800 * 4 + 1200 * 4 * 99);
     }
 
     #[test]

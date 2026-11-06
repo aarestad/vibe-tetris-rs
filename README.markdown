@@ -10,11 +10,13 @@ with no music.
 The game opens on the Main Menu, where you can start a game, choose the mode, starting level and
 goal system, read the controls or quit. After Game Over, any key returns to the menu.
 
-There are two modes:
+There are three modes:
 
 - **Marathon**: play for points through 15 levels.
 - **Sprint**: clear 40 lines as fast as you can. The level stays at the one you start on, and the
   clock shows hundredths of a second. The goal system does not apply.
+- **Ultra**: score as many points as you can in three minutes. The level stays at the one you
+  start on, the clock counts down, and the goal system does not apply.
 
 ## Controls
 
@@ -65,6 +67,6 @@ field left out takes its default. An invalid file stops the game with an error.
 `enable_sound` turns all sound on or off. When it is on, `enable_music` and
 `enable_sound_effects` control the background music and the sound effects separately.
 
-`game_mode` can be `marathon` or `sprint`.
+`game_mode` can be `marathon`, `sprint` or `ultra`.
 
 `lock_down_mode` can be `extended`, `infinite` or `classic`.

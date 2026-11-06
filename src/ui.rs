@@ -1,5 +1,5 @@
 use crate::config::GameMode;
-use crate::game_state::{GameOutcome, GameState};
+use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use crate::menu::{Menu, MenuItem};
 use crate::scoring::SPRINT_LINES;
 use crate::screen::Screen;
@@ -90,6 +90,9 @@ impl Renderer {
                     MenuItem::GoalSystem if menu.game_mode() == GameMode::Sprint => {
                         format!("Goal: {SPRINT_LINES} Lines")
                     }
+                    MenuItem::GoalSystem if menu.game_mode() == GameMode::Ultra => {
+                        format!("Goal: {} Minutes", ULTRA_TIME.as_secs() / 60)
+                    }
                     MenuItem::GoalSystem => {
                         let goal = if menu.variable_goal() {
                             "Variable"
@@ -123,16 +126,29 @@ impl Renderer {
         match mode {
             GameMode::Marathon => "Marathon",
             GameMode::Sprint => "Sprint",
+            GameMode::Ultra => "Ultra",
         }
     }
 
-    /// Time as minutes and seconds. A Sprint is a race, so it also shows hundredths.
+    /// Time as minutes and seconds. Sprint and Ultra race the clock, so they also show
+    /// hundredths.
     fn format_time(time: Duration, mode: GameMode) -> String {
         let seconds = time.as_secs();
         let clock = format!("{:02}:{:02}", seconds / 60, seconds % 60);
         match mode {
             GameMode::Marathon => clock,
-            GameMode::Sprint => format!("{clock}.{:02}", time.subsec_millis() / 10),
+            GameMode::Sprint | GameMode::Ultra => {
+                format!("{clock}.{:02}", time.subsec_millis() / 10)
+            }
+        }
+    }
+
+    /// The game clock: time played, or in an Ultra the time left.
+    fn clock(state: &GameState) -> String {
+        let mode = state.config.game_mode;
+        match mode {
+            GameMode::Ultra => Self::format_time(ULTRA_TIME.saturating_sub(state.elapsed), mode),
+            GameMode::Marathon | GameMode::Sprint => Self::format_time(state.elapsed, mode),
         }
     }
 
@@ -212,7 +228,6 @@ impl Renderer {
     }
 
     fn draw_info(f: &mut Frame, area: Rect, state: &GameState) {
-        let (done, total) = state.scoring.goal_progress();
         let mut lines = vec![
             Self::label("SCORE"),
             Self::value(state.scoring.score.to_string()),
@@ -220,21 +235,33 @@ impl Renderer {
             Self::value(state.scoring.level.to_string()),
             Self::label("LINES"),
             Self::value(state.scoring.lines_cleared.to_string()),
-            Self::label("PROGRESS"),
-            Self::value(format!("{done}/{total}")),
-            Line::styled(
-                Self::progress_bar(done, total),
-                Style::default().fg(Color::Green),
-            ),
-            Self::label("TIME"),
-            Self::value(Self::format_time(state.elapsed, state.config.game_mode)),
+        ];
+        // An Ultra has no Goal, only its clock.
+        if state.config.game_mode != GameMode::Ultra {
+            let (done, total) = state.scoring.goal_progress();
+            lines.extend([
+                Self::label("PROGRESS"),
+                Self::value(format!("{done}/{total}")),
+                Line::styled(
+                    Self::progress_bar(done, total),
+                    Style::default().fg(Color::Green),
+                ),
+            ]);
+        }
+        let time_label = match state.config.game_mode {
+            GameMode::Ultra => "TIME LEFT",
+            GameMode::Marathon | GameMode::Sprint => "TIME",
+        };
+        lines.extend([
+            Self::label(time_label),
+            Self::value(Self::clock(state)),
             Line::styled(
                 "[H] Help",
                 Style::default()
                     .fg(Color::Gray)
                     .add_modifier(Modifier::BOLD),
             ),
-        ];
+        ]);
 
         // Always outside the Matrix, which the Guideline requires after level 10.
         if let Some(text) = state.notification_text() {
@@ -480,6 +507,7 @@ impl Renderer {
         let title = match state.outcome() {
             Some(GameOutcome::MarathonComplete) => " MARATHON COMPLETE ",
             Some(GameOutcome::SprintComplete) => " SPRINT COMPLETE ",
+            Some(GameOutcome::UltraComplete) => " TIME UP ",
             _ => " GAME OVER ",
         };
         let scoring = &state.scoring;
@@ -498,6 +526,12 @@ impl Renderer {
                 let lines_cleared = scoring.lines_cleared.min(SPRINT_LINES);
                 lines.push(Line::from(format!(
                     "Lines Cleared: {lines_cleared}/{SPRINT_LINES}"
+                )));
+            }
+            GameMode::Ultra => {
+                lines.push(Line::from(format!(
+                    "Lines Cleared: {}",
+                    scoring.lines_cleared
                 )));
             }
         }
@@ -915,6 +949,54 @@ mod tests {
         assert!(screen.contains("Time: 01:01.23"), "{screen}");
         assert!(screen.contains("Lines Cleared: 40/40"), "{screen}");
         assert!(!screen.contains("Level Reached"), "{screen}");
+    }
+
+    fn ultra_state() -> GameState {
+        GameState::new(GameConfig {
+            game_mode: GameMode::Ultra,
+            enable_sound: false,
+            ..GameConfig::default()
+        })
+    }
+
+    #[test]
+    fn test_ultra_info_panel_counts_down_with_no_goal() {
+        let mut state = ultra_state();
+        state.elapsed = std::time::Duration::from_millis(61_230);
+        let screen = text(&draw_state(&state));
+        assert!(screen.contains("TIME LEFT"), "{screen}");
+        assert!(screen.contains("01:58.77"), "{screen}");
+        assert!(!screen.contains("PROGRESS"), "{screen}");
+    }
+
+    #[test]
+    fn test_ultra_time_up_shows_score_and_lines() {
+        let mut state = ultra_state();
+        state.elapsed = ULTRA_TIME;
+        state.scoring.score = 12_345;
+        state.scoring.lines_cleared = 37;
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::UltraComplete,
+            piece: None,
+        };
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state)
+        }));
+        assert!(screen.contains("TIME UP"), "{screen}");
+        assert!(screen.contains("Final Score: 12345"), "{screen}");
+        assert!(screen.contains("Lines Cleared: 37"), "{screen}");
+        assert!(screen.contains("00:00.00"), "{screen}");
+        assert!(!screen.contains("Level Reached"), "{screen}");
+    }
+
+    #[test]
+    fn test_menu_shows_ultra_with_its_time_limit() {
+        let mut menu = menu();
+        menu.handle_input(MenuInput::Down);
+        menu.handle_input(MenuInput::Left);
+        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        assert!(screen.contains("> Mode: < Ultra >"), "{screen}");
+        assert!(screen.contains("Goal: 3 Minutes"), "{screen}");
     }
 
     #[test]

@@ -35,6 +35,7 @@ const ENTER: &str = "\r";
 const UP: &str = "\x1b[A";
 const DOWN: &str = "\x1b[B";
 const RIGHT: &str = "\x1b[C";
+const LEFT: &str = "\x1b[D";
 const ESC_ENHANCED: &str = "\x1b[27u";
 const RIGHT_PRESS: &str = "\x1b[1;1:1C";
 const RIGHT_RELEASE: &str = "\x1b[1;1:3C";
@@ -444,6 +445,24 @@ fn test_sprint_chosen_in_the_menu_reaches_the_game() {
             .nth(1)
             .is_some_and(|line| line.contains("00:0") && line.contains('.'))
     });
+}
+
+#[test]
+fn test_ultra_chosen_in_the_menu_counts_down_from_three_minutes() {
+    let terminal = Terminal::start_at_menu();
+    terminal.send(DOWN);
+    terminal.send(LEFT);
+    terminal.wait_for_text("> Mode: < Ultra >");
+    terminal.wait_for_text("Goal: 3 Minutes");
+
+    terminal.send(UP);
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    // An Ultra lasts three minutes (Guideline 12.3) and has no Goal to show.
+    terminal.wait_for_text("TIME LEFT");
+    terminal.wait_for_text("02:5");
+    assert!(!terminal.shows("PROGRESS"));
 }
 
 #[test]
