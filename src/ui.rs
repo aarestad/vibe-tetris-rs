@@ -35,6 +35,8 @@ const TABLE_BOX_WIDTH: u16 = 40;
 const MENU_MIN_WIDTH: u16 = TABLE_BOX_WIDTH;
 const MENU_MIN_HEIGHT: u16 = 24;
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
+/// Rows of the high score box under the Next Queue: its value between two borders.
+const HIGH_SCORE_BOX_HEIGHT: u16 = 3;
 /// Seconds from a firework's launch until it fades out.
 const FIREWORK_SECONDS: f64 = 1.6;
 const FIREWORK_COLORS: [Color; 6] = [
@@ -66,6 +68,8 @@ pub struct GameOverView<'a> {
     pub reward: Option<EndReward>,
     /// Time since Game Over, which moves the fireworks.
     pub since: Duration,
+    /// The top entry in this variant's High Score Table before this game, if it had one.
+    pub best: Option<&'a HighScore>,
 }
 
 pub struct Renderer {
@@ -80,18 +84,24 @@ impl Renderer {
     }
 
     /// Draws the given screen. Called every frame, so a resize on any screen is handled.
-    pub fn render(&mut self, state: &GameState, screen: Screen) -> Result<()> {
+    /// `best` is the top entry in this variant's High Score Table, if it has one.
+    pub fn render(
+        &mut self,
+        state: &GameState,
+        screen: Screen,
+        best: Option<&HighScore>,
+    ) -> Result<()> {
         self.terminal
-            .draw(|f| Self::draw_screen(f, state, screen))?;
+            .draw(|f| Self::draw_screen(f, state, screen, best))?;
         Ok(())
     }
 
-    fn draw_screen(f: &mut Frame, state: &GameState, screen: Screen) {
+    fn draw_screen(f: &mut Frame, state: &GameState, screen: Screen, best: Option<&HighScore>) {
         match screen {
-            Screen::Playing => Self::draw_game(f, state, false),
-            Screen::Paused => Self::draw_pause_screen(f, state),
+            Screen::Playing => Self::draw_game(f, state, false, best),
+            Screen::Paused => Self::draw_pause_screen(f, state, best),
             Screen::Help(page) => {
-                Self::draw_game(f, state, false);
+                Self::draw_game(f, state, false, best);
                 Self::draw_help_overlay(f, state, page);
             }
         }
@@ -329,7 +339,7 @@ impl Renderer {
         })
     }
 
-    fn draw_game(f: &mut Frame, state: &GameState, hide_play: bool) {
+    fn draw_game(f: &mut Frame, state: &GameState, hide_play: bool, best: Option<&HighScore>) {
         let Some(area) = Self::play_area(f.area(), state) else {
             Self::draw_too_small(f, state);
             return;
@@ -353,7 +363,62 @@ impl Renderer {
         Self::draw_held_piece(f, left_chunks[0], state, hide_play);
         Self::draw_info(f, left_chunks[1], state);
         Self::draw_board(f, chunks[1], state, hide_play);
-        Self::draw_next_pieces(f, chunks[2], state, hide_play);
+        Self::draw_right_column(f, chunks[2], state, hide_play, best);
+    }
+
+    /// The Next Queue, with the high score below it when the column has room. A full queue
+    /// in the standard Matrix leaves just enough.
+    fn draw_right_column(
+        f: &mut Frame,
+        area: Rect,
+        state: &GameState,
+        hide_play: bool,
+        best: Option<&HighScore>,
+    ) {
+        // A border, the label, and a blank row and two rows of Minos for each Tetrimino.
+        let next_height = 3 + 3 * state.config.preview_count as u16;
+        if area.height < next_height + HIGH_SCORE_BOX_HEIGHT {
+            Self::draw_next_pieces(f, area, state, hide_play);
+            return;
+        }
+        let [next_area, high_score_area] = Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(HIGH_SCORE_BOX_HEIGHT),
+        ])
+        .areas(area);
+        Self::draw_next_pieces(f, next_area, state, hide_play);
+        Self::draw_high_score(f, high_score_area, state, best);
+    }
+
+    /// The high score information field (Guideline 2.4): the best result in this variant's
+    /// High Score Table, or the current score once it is higher. A Sprint shows the best time
+    /// instead, since that is what its table ranks by.
+    fn draw_high_score(f: &mut Frame, area: Rect, state: &GameState, best: Option<&HighScore>) {
+        let mode = state.config.game_mode;
+        let (title, value) = match mode {
+            GameMode::Sprint => {
+                let time = best.map_or("--:--.--".to_string(), |best| {
+                    Self::format_time(best.time(), mode)
+                });
+                (" BEST TIME ", time)
+            }
+            GameMode::Marathon | GameMode::Ultra => {
+                let best_score = best.map_or(0, |best| best.score);
+                (
+                    " HIGH SCORE ",
+                    best_score.max(state.scoring.score).to_string(),
+                )
+            }
+        };
+        let title = Line::from(Span::styled(
+            title,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .centered();
+        let paragraph = Paragraph::new(Self::value(value)).block(Self::panel().title(title));
+        f.render_widget(paragraph, area);
     }
 
     fn draw_too_small(f: &mut Frame, state: &GameState) {
@@ -732,8 +797,8 @@ impl Renderer {
     }
 
     /// Hides play and shows "PAUSED" (Guideline 13.1.6).
-    fn draw_pause_screen(f: &mut Frame, state: &GameState) {
-        Self::draw_game(f, state, true);
+    fn draw_pause_screen(f: &mut Frame, state: &GameState, best: Option<&HighScore>) {
+        Self::draw_game(f, state, true, best);
         let lines = vec![Line::from("Esc to resume"), Line::from("Q to quit")];
         Self::draw_box(f, state, " PAUSED ", lines, Alignment::Center);
     }
@@ -747,7 +812,7 @@ impl Renderer {
     }
 
     fn draw_game_over_screen(f: &mut Frame, state: &GameState, view: GameOverView) {
-        Self::draw_game(f, state, false);
+        Self::draw_game(f, state, false, view.best);
         let Some(area) = Self::play_area(f.area(), state) else {
             return;
         };
@@ -992,7 +1057,9 @@ mod tests {
     }
 
     fn draw_state(state: &GameState) -> Buffer {
-        draw(WIDTH, HEIGHT, |f| Renderer::draw_game(f, state, false))
+        draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game(f, state, false, None)
+        })
     }
 
     fn text(buffer: &Buffer) -> String {
@@ -1080,7 +1147,7 @@ mod tests {
             ..GameConfig::default()
         });
         state.next_pieces = vec![TetriminoType::O; 6];
-        let buffer = draw(80, 24, |f| Renderer::draw_game(f, &state, false));
+        let buffer = draw(80, 24, |f| Renderer::draw_game(f, &state, false, None));
         assert_eq!(count(&buffer, "█"), 6 * 8);
     }
 
@@ -1095,20 +1162,22 @@ mod tests {
     #[test]
     fn test_too_small_terminal_shows_message() {
         let state = state();
-        let buffer = draw(49, 24, |f| Renderer::draw_game(f, &state, false));
+        let buffer = draw(49, 24, |f| Renderer::draw_game(f, &state, false, None));
         assert!(text(&buffer).contains("Terminal too small"));
-        let buffer = draw(50, 23, |f| Renderer::draw_game(f, &state, false));
+        let buffer = draw(50, 23, |f| Renderer::draw_game(f, &state, false, None));
         assert!(text(&buffer).contains("Terminal too small"));
-        let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false));
+        let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false, None));
         assert!(!text(&buffer).contains("Terminal too small"));
     }
 
     #[test]
     fn test_overlays_do_not_panic_when_too_small() {
         let state = state();
-        draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Paused));
         draw(10, 3, |f| {
-            Renderer::draw_screen(f, &state, Screen::Help(HelpPage::Controls))
+            Renderer::draw_screen(f, &state, Screen::Paused, None)
+        });
+        draw(10, 3, |f| {
+            Renderer::draw_screen(f, &state, Screen::Help(HelpPage::Controls), None)
         });
         draw(10, 3, |f| {
             Renderer::draw_game_over_screen(f, &state, GameOverView::default())
@@ -1133,7 +1202,7 @@ mod tests {
         });
 
         let buffer = draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_screen(f, &state, Screen::Paused)
+            Renderer::draw_screen(f, &state, Screen::Paused, None)
         });
 
         assert_eq!(count(&buffer, "█"), 0);
@@ -1325,7 +1394,7 @@ mod tests {
     fn test_playing_screen_has_no_overlay() {
         let state = state();
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_screen(f, &state, Screen::Playing)
+            Renderer::draw_screen(f, &state, Screen::Playing, None)
         }));
         assert!(!screen.contains("PAUSED"));
         assert!(!screen.contains("CONTROLS"));
@@ -1345,7 +1414,7 @@ mod tests {
     fn test_help_overlay_lists_controls() {
         let state = state();
         let buffer = draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_screen(f, &state, Screen::Help(HelpPage::Controls))
+            Renderer::draw_screen(f, &state, Screen::Help(HelpPage::Controls), None)
         });
         let screen = text(&buffer);
         assert!(screen.contains("CONTROLS"));
@@ -1359,7 +1428,7 @@ mod tests {
             "Back-to-Back T-Spin Double".to_string(),
             std::time::Duration::from_secs(2),
         ));
-        let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false));
+        let buffer = draw(50, 24, |f| Renderer::draw_game(f, &state, false, None));
         let screen = text(&buffer);
         assert!(screen.contains("Double"));
     }
@@ -1836,7 +1905,7 @@ mod help_tests {
         });
         for (index, page) in HelpPage::ALL.into_iter().enumerate() {
             let screen = draw(50, 24, |f| {
-                Renderer::draw_screen(f, &state, Screen::Help(page))
+                Renderer::draw_screen(f, &state, Screen::Help(page), None)
             });
             assert!(screen.contains(Renderer::help_title(page)), "{screen}");
             for mark in page_marks(page) {
@@ -1888,5 +1957,126 @@ mod help_tests {
                 assert!(width <= BOX_WIDTH as usize - 2, "{page:?}: {line}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod high_score_box_tests {
+    use super::*;
+    use crate::config::GameConfig;
+    use ratatui::backend::TestBackend;
+
+    fn state(mode: GameMode) -> GameState {
+        GameState::new(GameConfig {
+            game_mode: mode,
+            enable_sound: false,
+            ..GameConfig::default()
+        })
+    }
+
+    fn entry(score: u64, time_ms: u64) -> HighScore {
+        HighScore {
+            name: "Ann".to_string(),
+            score,
+            level: 3,
+            lines: 30,
+            time_ms,
+        }
+    }
+
+    /// The screen's rows, drawn at the smallest size the game allows.
+    fn rows(state: &GameState, best: Option<&HighScore>) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(50, 24)).unwrap();
+        terminal
+            .draw(|f| Renderer::draw_game(f, state, false, best))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_high_score_shows_the_best_until_the_current_score_passes_it() {
+        let best = entry(5_000, 0);
+        let mut state = state(GameMode::Marathon);
+        state.scoring.score = 1_200;
+        let screen = rows(&state, Some(&best)).join("\n");
+        assert!(screen.contains("HIGH SCORE"), "{screen}");
+        assert!(screen.contains("5000"), "{screen}");
+
+        state.scoring.score = 9_100;
+        let screen = rows(&state, Some(&best)).join("\n");
+        assert_eq!(screen.matches("9100").count(), 2, "{screen}");
+        assert!(!screen.contains("5000"), "{screen}");
+    }
+
+    #[test]
+    fn test_high_score_with_an_empty_table_is_the_current_score() {
+        let mut state = state(GameMode::Ultra);
+        state.scoring.score = 700;
+        let screen = rows(&state, None).join("\n");
+        assert!(screen.contains("HIGH SCORE"), "{screen}");
+        assert_eq!(screen.matches("700").count(), 2, "{screen}");
+    }
+
+    #[test]
+    fn test_sprint_shows_the_best_time() {
+        let state = state(GameMode::Sprint);
+        let screen = rows(&state, Some(&entry(900, 45_120))).join("\n");
+        assert!(screen.contains("BEST TIME"), "{screen}");
+        assert!(screen.contains("00:45.12"), "{screen}");
+        assert!(!screen.contains("HIGH SCORE"), "{screen}");
+
+        let screen = rows(&state, None).join("\n");
+        assert!(screen.contains("--:--.--"), "{screen}");
+    }
+
+    #[test]
+    fn test_a_full_next_queue_still_fits_above_the_high_score() {
+        let state = GameState::new(GameConfig {
+            preview_count: 6,
+            enable_sound: false,
+            ..GameConfig::default()
+        });
+        let rows = rows(&state, None);
+        let right = |row: &String| row.chars().skip(36).collect::<String>();
+        // The sixth Tetrimino takes rows 18 and 19, inside the Next Queue's border.
+        assert!(
+            right(&rows[18]).contains('█') || right(&rows[19]).contains('█'),
+            "{}",
+            rows.join("\n")
+        );
+        assert!(right(&rows[20]).starts_with('└'), "{}", rows.join("\n"));
+        assert!(
+            right(&rows[21]).contains("HIGH SCORE"),
+            "{}",
+            rows.join("\n")
+        );
+    }
+
+    #[test]
+    fn test_high_score_gives_way_when_the_column_is_too_short() {
+        let state = GameState::new(GameConfig {
+            board_height: 19,
+            preview_count: 6,
+            enable_sound: false,
+            ..GameConfig::default()
+        });
+        let mut terminal = Terminal::new(TestBackend::new(50, 23)).unwrap();
+        terminal
+            .draw(|f| Renderer::draw_game(f, &state, false, None))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let screen: String = (0..buffer.area.height)
+            .flat_map(|y| (0..buffer.area.width).map(move |x| (x, y)))
+            .map(|(x, y)| buffer[(x, y)].symbol().to_string())
+            .collect();
+        assert!(!screen.contains("HIGH SCORE"), "{screen}");
+        assert!(screen.contains("NEXT"), "{screen}");
     }
 }

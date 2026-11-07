@@ -4,27 +4,27 @@ Nov 6, 2026, updated Nov 7, 2026 · @Peter Aarestad
 
 ## Summary
 
-tetris-rs now plays as Guideline Tetris: of 37 Guideline areas, 29 are met, 7 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
+tetris-rs now plays as Guideline Tetris: of 37 Guideline areas, 30 are met, 6 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
 
 What remains:
 
-- **Game flow:** the High Score Table, End Rewards, game statistics and a three-page Help are in. Starting Blocks and the high score on the game screen remain.
+- **Game flow:** the High Score Table, End Rewards, game statistics, a three-page Help and the high score during play are in. Starting Blocks remain.
 - **Sound:** all six required sound effects and most recommended ones now play, and Peter has confirmed they sound good.
 - **Basic terminals:** Auto-Repeat and 20x Soft Drop need a terminal that reports key releases. Elsewhere, holding a key falls back to OS key repeat.
 
 One risk still needs your decision: the Guideline PDF, which is marked CONFIDENTIAL, and its extracted text are removed from `main`. They remain in the public GitHub repo's history.
 
-This report describes `main` at commit `e0f4a62`, which adds paged Help. It passes lint and all 367 tests locally and in CI on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
+This report describes `main` with the high score field added on top of commit `d881fe6`. Locally it passes lint and all 372 tests. CI's latest run, for `e0f4a62`, passed lint and all 367 tests then on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
 
 ## Current state
 
-The code is a 10,394-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
+The code is a 10,593-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
 
 | Module | Lines (with tests) | Tests | Responsibility |
 | --- | --- | --- | --- |
 | `src/game_state.rs` | 1,865 | 83 | Phases, generation, gravity, Lock Down, Hold, T-Spin recognition, seedable bag, sound events |
-| `src/ui.rs` | 1,892 | 46 | ratatui rendering: menu, Options and High Scores pages, Help pages, Matrix, queues, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
-| `tests/end_to_end.rs` | 987 | 35 | Runs the real binary in a pseudo-terminal and reads its screen |
+| `src/ui.rs` | 2,082 | 51 | ratatui rendering: menu, Options and High Scores pages, Help pages, Matrix, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
+| `tests/end_to_end.rs` | 989 | 35 | Runs the real binary in a pseudo-terminal and reads its screen |
 | `src/menu.rs` | 801 | 29 | Main Menu choices, the Options page and the High Scores page, with no terminal |
 | `src/scoring.rs` | 651 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
 | `src/session.rs` | 597 | 27 | Input and time handling for one game, with no terminal or sound |
@@ -32,7 +32,7 @@ The code is a 10,394-line, single-player Rust terminal game on `main`, built on 
 | `src/high_scores.rs` | 516 | 13 | High Score Table per variant, ranking, saving and loading, name entry |
 | `src/board.rs` | 490 | 38 | Matrix and Buffer Zone storage, collision, Line Clear |
 | `src/tetrimino.rs` | 352 | 11 | Facings, Tetrimino shapes, generation position, Super Rotation tables |
-| `src/game.rs` | 307 | 0 | Connects the menu and each game to the real terminal and sound device, and saves options and high scores |
+| `src/game.rs` | 314 | 0 | Connects the menu and each game to the real terminal and sound device, and saves options and high scores |
 | `tests/skilled_play.rs` | 266 | 4 | A bot plays seeded Marathons, Sprints and Ultras through real key events |
 | `src/config.rs` | 259 | 9 | JSON config with defaults, validation and saving, including the game mode |
 | `src/audio.rs` | 238 | 8 | Embedded background music and sound effects via rodio |
@@ -42,15 +42,15 @@ The code is a 10,394-line, single-player Rust terminal game on `main`, built on 
 | `src/screen.rs` | 143 | 7 | Playing, Paused and Help screens, the Help pages and the keys that switch them |
 | `build.rs` | 39 | 0 | Converts the Korobeiniki MIDI to WAV with `timidity` |
 
-- **Tests:** `cargo test` passes all 367 tests: 327 in the library, 35 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
+- **Tests:** `cargo test` passes all 372 tests: 332 in the library, 35 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
-- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `e0f4a62`, passed lint and all 367 tests on both.
+- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `e0f4a62`, passed lint and all 367 tests on both. The high score field is not pushed yet.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
 - **Docs:** the README covers the menu, its three modes, the Options page, the Game Over statistics, the High Score Table, End Rewards and Help, running, controls and configuration, including the sound and mode settings, and `AGENTS.md` matches the code.
 
 ## Guideline compliance
 
-29 of the 37 areas below now fully meet the Guideline, and none are wrong. Rows follow Guideline order. Section numbers refer to the 2009 Tetris Design Guideline. For rotation, I compared the code against all 28 facing pages, for the I, T, L, J, S and Z.
+30 of the 37 areas below now fully meet the Guideline, and none are wrong. Rows follow Guideline order. Section numbers refer to the 2009 Tetris Design Guideline. For rotation, I compared the code against all 28 facing pages, for the I, T, L, J, S and Z.
 
 | Guideline area | Section | Status | What the code does today | Code |
 | --- | --- | --- | --- | --- |
@@ -79,7 +79,7 @@ The code is a 10,394-line, single-player Rust terminal game on `main`, built on 
 | T-Spin scoring | 8 | Met | Table totals for all six T-Spin actions, including no-clear T-Spins. | `src/scoring.rs:174` |
 | Back-to-Back | 8.1 | Met | The 0.5 x bonus and sequence rules reproduce the Guideline's 5,400-point example. | `src/scoring.rs:72` |
 | Game Over conditions | 10 | Met | Block Out and Lock Out work. Top Out can only come from Line Attacks, which are not in single player. | `src/game_state.rs:535` |
-| Game information display | 2.4 | Partial | Score, level, lines, Goal and time, with hundredths in Sprint and a countdown in Ultra. The mode name is shown in the panel's border. No high score. | `src/ui.rs:285` |
+| Game information display | 2.4, 7 | Met | Score, level, lines, Goal and time, with hundredths in Sprint and a countdown in Ultra. The mode name is shown in the panel's border. A box under the Next Queue shows the variant's high score, or the current score once it is higher, and in Sprint the best time. It gives way if a smaller Matrix leaves no room. Player name and rank, also listed as possible fields, are left out. | `src/ui.rs:396` |
 | Pause | 13.1.6 | Met | Stops play and time, and hides the Matrix and both queues. | `src/ui.rs:548` |
 | Controls | 4.1 | Partial | All arrow, letter, Space, Esc and F1 keys work, and numpad keys work as digits. Shift, Ctrl and remapping are absent. | `src/input.rs:103` |
 | Visual effects | 13.1 | Partial | Line Clear effects scale with count, and action notifications show outside the Matrix. No Lock Down flash, Hard Drop trail or background. | `src/ui.rs:350` |
@@ -154,7 +154,6 @@ The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, 
 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |
-| High score on the game screen | 2.4 | S | The Guideline lists the high score as a game information field. The info panel has no spare rows at the smallest terminal size, so it needs a layout change. |
 | Starting Blocks | 2.4 | S | Optional rows of blocks at game start. |
 
 ### 4. Controls, effects and sound

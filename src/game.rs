@@ -135,6 +135,9 @@ impl Game {
     fn play_game(&mut self, key_release_events: bool) -> Result<bool> {
         let mut session = Session::new(self.menu.game_config(&self.config));
         session.set_key_release_events(key_release_events);
+        // Shown during play as the high score to beat (Guideline 2.4).
+        let mode = session.state().config.game_mode;
+        let best = self.scores.table(mode).first().cloned();
 
         self.start_music();
 
@@ -148,11 +151,12 @@ impl Game {
             self.handle_pending_input(&mut session);
             session.update(dt);
             self.play_sound_effects(&mut session);
-            self.renderer.render(session.state(), session.screen())?;
+            self.renderer
+                .render(session.state(), session.screen(), best.as_ref())?;
 
             if session.state().is_game_over() {
                 self.audio.stop();
-                return self.finish_game(session.state());
+                return self.finish_game(session.state(), best.as_ref());
             }
 
             std::thread::sleep(FRAME_DURATION.saturating_sub(frame_start.elapsed()));
@@ -162,18 +166,22 @@ impl Game {
     /// Shows the Game Over screen, with any End Reward. A result that makes the High Score
     /// Table asks for a name, is saved, and opens the table for the menu to show. Returns true
     /// if the player wants to leave the program.
-    fn finish_game(&mut self, state: &GameState) -> Result<bool> {
+    fn finish_game(&mut self, state: &GameState, best: Option<&HighScore>) -> Result<bool> {
         let mode = state.config.game_mode;
         let new_high_score = HighScore::from_game(state)
             .and_then(|score| Some((self.scores.rank_of(mode, &score)?, score)));
         let rank = new_high_score.as_ref().map(|(rank, _)| *rank);
         let table_was_empty = self.scores.table(mode).is_empty();
-        let reward = EndReward::for_game(state, rank, table_was_empty);
+        let view = GameOverView {
+            reward: EndReward::for_game(state, rank, table_was_empty),
+            best,
+            ..GameOverView::default()
+        };
 
         let Some((rank, mut score)) = new_high_score else {
-            return self.wait_on_game_over(state, reward);
+            return self.wait_on_game_over(state, view);
         };
-        let Some(name) = self.enter_name(state, rank, reward)? else {
+        let Some(name) = self.enter_name(state, rank, view)? else {
             return Ok(true);
         };
         score.name = name;
@@ -186,7 +194,7 @@ impl Game {
     /// Shows the Game Over screen until a key is pressed. Keys pressed in the first moments
     /// are ignored, so a key held during play does not dismiss it at once. Returns true for
     /// Ctrl+C, which means the player wants to leave.
-    fn wait_on_game_over(&mut self, state: &GameState, reward: Option<EndReward>) -> Result<bool> {
+    fn wait_on_game_over(&mut self, state: &GameState, view: GameOverView) -> Result<bool> {
         let start = Instant::now();
         loop {
             while let Some(quit) = self.input.poll_key_press() {
@@ -198,9 +206,8 @@ impl Game {
                 }
             }
             let view = GameOverView {
-                new_high_score: None,
-                reward,
                 since: start.elapsed(),
+                ..view
             };
             self.renderer.render_game_over(state, view)?;
             std::thread::sleep(FRAME_DURATION);
@@ -213,7 +220,7 @@ impl Game {
         &mut self,
         state: &GameState,
         rank: usize,
-        reward: Option<EndReward>,
+        view: GameOverView,
     ) -> Result<Option<String>> {
         let mut entry = NameEntry::new(self.scores.last_name());
         let start = Instant::now();
@@ -231,8 +238,8 @@ impl Game {
             }
             let view = GameOverView {
                 new_high_score: Some((rank, entry.name())),
-                reward,
                 since: start.elapsed(),
+                ..view
             };
             self.renderer.render_game_over(state, view)?;
             std::thread::sleep(FRAME_DURATION);

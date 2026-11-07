@@ -840,6 +840,8 @@ fn test_a_new_high_score_is_named_saved_and_shown_from_the_menu() {
 fn test_quitting_a_game_does_not_ask_for_a_name() {
     let mut terminal = Terminal::start(KeyReleases::NotSupported);
     terminal.wait_for_piece();
+    // With no saved scores, the high score field shows the current score.
+    assert!(terminal.shows(" HIGH SCORE "));
     terminal.send(" ");
     terminal.wait_for("a score", |t| t.score() > 0);
     terminal.send("q");
