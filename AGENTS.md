@@ -6,9 +6,14 @@ This file contains guidelines and commands for agentic coding agents working on 
 
 This is a terminal-based Tetris game written in Rust (edition 2024) using ratatui and crossterm for cross-platform terminal UI, and rodio for audio. The game follows standard Tetris mechanics with support for configuration files, different tetrimino types, and full game loop implementation.
 
-The design of the game aims to implement as much as possible of the official
-[Tetris Design Guidelines](./2009%20Tetris%20Design%20Guideline.pdf), including T-Spins, Variable Goal System, and Super
-Rotation.
+The design of the game aims to implement as much as possible of the official 2009 Tetris Design
+Guideline, including T-Spins, Variable Goal System, and Super Rotation. The Guideline is confidential
+and is not kept in this repo. If a local copy exists, it is in `reference/`, which git ignores; never
+commit it or move it elsewhere in the repo.
+
+[docs/implementation-status.md](./docs/implementation-status.md) tracks the game against the Guideline
+and is the canonical status doc. Update it whenever a change affects Guideline compliance, the test
+counts, module sizes, defects or the feature backlog.
 
 ## Build, Test, and Development Commands
 
