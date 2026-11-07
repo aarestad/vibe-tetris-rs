@@ -1,3 +1,4 @@
+use crate::high_scores::TextInput;
 use crate::menu::MenuInput;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -54,6 +55,23 @@ impl InputHandler {
             match event::read() {
                 Ok(Event::Key(key)) => {
                     if let Some(input) = key_to_menu_input(key) {
+                        return Some(input);
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    /// Returns the next key for typing a name, skipping events that map to nothing. Does not
+    /// block.
+    pub fn poll_text_input(&self) -> Option<TextInput> {
+        while let Ok(true) = event::poll(Duration::ZERO) {
+            match event::read() {
+                Ok(Event::Key(key)) => {
+                    if let Some(input) = key_to_text_input(key) {
                         return Some(input);
                     }
                 }
@@ -146,6 +164,22 @@ fn key_to_menu_input(key: KeyEvent) -> Option<MenuInput> {
         KeyCode::Enter | KeyCode::Char(' ') => Some(MenuInput::Select),
         KeyCode::Esc => Some(MenuInput::Back),
         KeyCode::Char('q') | KeyCode::Char('Q') => Some(MenuInput::Quit),
+        _ => None,
+    }
+}
+
+/// Keys for typing a name. Held keys repeat, as they do in any text field.
+fn key_to_text_input(key: KeyEvent) -> Option<TextInput> {
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return is_ctrl_c(key).then_some(TextInput::Quit);
+    }
+    match key.code {
+        KeyCode::Enter => Some(TextInput::Enter),
+        KeyCode::Backspace => Some(TextInput::Backspace),
+        KeyCode::Char(c) => Some(TextInput::Char(c)),
         _ => None,
     }
 }
@@ -364,6 +398,50 @@ mod tests {
         let ctrl = |c| key(KeyCode::Char(c), KeyModifiers::CONTROL, KeyEventKind::Press);
         assert_eq!(key_to_menu_input(ctrl('c')), Some(MenuInput::Quit));
         assert_eq!(key_to_menu_input(ctrl('q')), None);
+    }
+
+    #[test]
+    fn test_text_keys_type_letters_and_digits_including_shifted_ones() {
+        let cases = [
+            (KeyCode::Char('a'), KeyModifiers::NONE, TextInput::Char('a')),
+            (
+                KeyCode::Char('A'),
+                KeyModifiers::SHIFT,
+                TextInput::Char('A'),
+            ),
+            (KeyCode::Char('7'), KeyModifiers::NONE, TextInput::Char('7')),
+            (KeyCode::Char('q'), KeyModifiers::NONE, TextInput::Char('q')),
+            (KeyCode::Enter, KeyModifiers::NONE, TextInput::Enter),
+            (KeyCode::Backspace, KeyModifiers::NONE, TextInput::Backspace),
+            (KeyCode::Char('c'), KeyModifiers::CONTROL, TextInput::Quit),
+        ];
+        for (code, modifiers, input) in cases {
+            let event = key(code, modifiers, KeyEventKind::Press);
+            assert_eq!(key_to_text_input(event), Some(input), "{code:?}");
+        }
+    }
+
+    #[test]
+    fn test_text_keys_repeat_but_ignore_releases_other_ctrl_keys_and_arrows() {
+        let repeat = key(KeyCode::Backspace, KeyModifiers::NONE, KeyEventKind::Repeat);
+        assert_eq!(key_to_text_input(repeat), Some(TextInput::Backspace));
+        let ignored = [
+            key(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+                KeyEventKind::Release,
+            ),
+            key(
+                KeyCode::Char('z'),
+                KeyModifiers::CONTROL,
+                KeyEventKind::Press,
+            ),
+            key(KeyCode::Left, KeyModifiers::NONE, KeyEventKind::Press),
+            key(KeyCode::Esc, KeyModifiers::NONE, KeyEventKind::Press),
+        ];
+        for event in ignored {
+            assert_eq!(key_to_text_input(event), None, "{event:?}");
+        }
     }
 
     #[test]

@@ -1,5 +1,7 @@
 use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
+use crate::game_state::GameState;
+use crate::high_scores::{HighScore, HighScores, NameEntry, NameEntryResult, TextInput};
 use crate::input::InputHandler;
 use crate::menu::{Menu, MenuResult};
 use crate::session::{MusicChange, Session};
@@ -29,6 +31,9 @@ pub struct Game {
     config: GameConfig,
     /// Where the Options page saves the settings.
     config_path: PathBuf,
+    scores: HighScores,
+    /// Where new high scores are saved.
+    scores_path: PathBuf,
     menu: Menu,
     renderer: Renderer,
     input: InputHandler,
@@ -37,7 +42,12 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(config: GameConfig, config_path: PathBuf) -> Result<Self> {
+    pub fn new(
+        config: GameConfig,
+        config_path: PathBuf,
+        scores: HighScores,
+        scores_path: PathBuf,
+    ) -> Result<Self> {
         let renderer = Renderer::new()?;
         let mut audio = if config.enable_sound {
             AudioPlayer::new()
@@ -50,6 +60,8 @@ impl Game {
             menu: Menu::new(&config),
             config,
             config_path,
+            scores,
+            scores_path,
             renderer,
             input: InputHandler::new(),
             audio,
@@ -89,7 +101,7 @@ impl Game {
                     MenuResult::Exit => return Ok(false),
                 }
             }
-            self.renderer.render_menu(&self.menu)?;
+            self.renderer.render_menu(&self.menu, &self.scores)?;
             std::thread::sleep(FRAME_DURATION);
         }
     }
@@ -99,10 +111,21 @@ impl Game {
     fn save_options(&mut self) {
         self.menu.options().apply_to(&mut self.config);
         if let Err(error) = self.config.save_to_file(&self.config_path) {
-            let warning = format!("could not save options: {error:#}");
-            if !self.warnings.contains(&warning) {
-                self.warnings.push(warning);
-            }
+            self.warn(format!("could not save options: {error:#}"));
+        }
+    }
+
+    /// Saves the High Score Table. A failed save keeps the scores for this run and is reported
+    /// when the program exits.
+    fn save_scores(&mut self) {
+        if let Err(error) = self.scores.save_to_file(&self.scores_path) {
+            self.warn(format!("could not save high scores: {error:#}"));
+        }
+    }
+
+    fn warn(&mut self, warning: String) {
+        if !self.warnings.contains(&warning) {
+            self.warnings.push(warning);
         }
     }
 
@@ -128,12 +151,56 @@ impl Game {
 
             if session.state().is_game_over() {
                 self.audio.stop();
-                self.renderer.render_game_over(session.state())?;
-                stdout().flush()?;
-                return self.input.wait_for_key_press(GAME_OVER_KEY_GUARD);
+                return self.finish_game(session.state());
             }
 
             std::thread::sleep(FRAME_DURATION.saturating_sub(frame_start.elapsed()));
+        }
+    }
+
+    /// Shows the Game Over screen. A result that makes the High Score Table asks for a name,
+    /// is saved, and opens the table for the menu to show. Returns true if the player wants to
+    /// leave the program.
+    fn finish_game(&mut self, state: &GameState) -> Result<bool> {
+        let mode = state.config.game_mode;
+        let new_high_score = HighScore::from_game(state)
+            .and_then(|score| Some((self.scores.rank_of(mode, &score)?, score)));
+        let Some((rank, mut score)) = new_high_score else {
+            self.renderer.render_game_over(state, None)?;
+            stdout().flush()?;
+            return self.input.wait_for_key_press(GAME_OVER_KEY_GUARD);
+        };
+
+        let Some(name) = self.enter_name(state, rank)? else {
+            return Ok(true);
+        };
+        score.name = name;
+        let rank = self.scores.insert(mode, score);
+        self.save_scores();
+        self.menu.show_high_scores(mode, rank);
+        Ok(false)
+    }
+
+    /// Asks for a name for a new high score. Returns None if the player pressed Ctrl+C, which
+    /// leaves without saving.
+    fn enter_name(&mut self, state: &GameState, rank: usize) -> Result<Option<String>> {
+        let mut entry = NameEntry::new(self.scores.last_name());
+        let start = Instant::now();
+        loop {
+            while let Some(input) = self.input.poll_text_input() {
+                // Keys still held from play must not type or confirm a name.
+                if input != TextInput::Quit && start.elapsed() < GAME_OVER_KEY_GUARD {
+                    continue;
+                }
+                match entry.handle_input(input) {
+                    NameEntryResult::Typing => {}
+                    NameEntryResult::Done(name) => return Ok(Some(name)),
+                    NameEntryResult::Quit => return Ok(None),
+                }
+            }
+            self.renderer
+                .render_game_over(state, Some((rank, entry.name())))?;
+            std::thread::sleep(FRAME_DURATION);
         }
     }
 

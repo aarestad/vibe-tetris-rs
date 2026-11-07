@@ -34,6 +34,7 @@ pub enum MenuItem {
     GameMode,
     StartingLevel,
     GoalSystem,
+    HighScores,
     Options,
     Help,
     Quit,
@@ -41,11 +42,12 @@ pub enum MenuItem {
 
 impl MenuItem {
     /// All items in the order shown.
-    pub const ALL: [MenuItem; 7] = [
+    pub const ALL: [MenuItem; 8] = [
         MenuItem::NewGame,
         MenuItem::GameMode,
         MenuItem::StartingLevel,
         MenuItem::GoalSystem,
+        MenuItem::HighScores,
         MenuItem::Options,
         MenuItem::Help,
         MenuItem::Quit,
@@ -81,6 +83,8 @@ impl OptionItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuPage {
     Main,
+    /// The High Score Table (Guideline 11.2), one variant at a time.
+    HighScores,
     Options,
     Help,
 }
@@ -140,6 +144,10 @@ pub struct Menu {
     starting_level: u32,
     variable_goal: bool,
     options: Options,
+    /// The variant whose table the High Scores page shows.
+    table_mode: GameMode,
+    /// A just-entered result to mark in its variant's table, as its place from 0.
+    highlight: Option<(GameMode, usize)>,
 }
 
 impl Menu {
@@ -153,6 +161,8 @@ impl Menu {
             starting_level: config.starting_level,
             variable_goal: config.enable_variable_goal,
             options: Options::from_config(config),
+            table_mode: config.game_mode,
+            highlight: None,
         }
     }
 
@@ -184,6 +194,26 @@ impl Menu {
         self.options
     }
 
+    /// The variant whose table the High Scores page shows.
+    pub fn table_mode(&self) -> GameMode {
+        self.table_mode
+    }
+
+    /// The place, from 0, of the result to mark in the table on screen, if any.
+    pub fn highlighted_rank(&self) -> Option<usize> {
+        match self.highlight {
+            Some((mode, rank)) if mode == self.table_mode => Some(rank),
+            _ => None,
+        }
+    }
+
+    /// Opens the High Scores page on a variant's table, marking a just-entered result.
+    pub fn show_high_scores(&mut self, mode: GameMode, highlight: Option<usize>) {
+        self.page = MenuPage::HighScores;
+        self.table_mode = mode;
+        self.highlight = highlight.map(|rank| (mode, rank));
+    }
+
     /// The settings for a new game: the config file's, with this menu's choices applied.
     pub fn game_config(&self, base: &GameConfig) -> GameConfig {
         let mut config = GameConfig {
@@ -204,6 +234,10 @@ impl Menu {
         match self.page {
             MenuPage::Main => self.handle_main_input(input),
             MenuPage::Options => self.handle_options_input(input),
+            MenuPage::HighScores => {
+                self.handle_high_scores_input(input);
+                MenuResult::Stay
+            }
             MenuPage::Help => {
                 if matches!(input, MenuInput::Back | MenuInput::Select) {
                     self.page = MenuPage::Main;
@@ -232,6 +266,7 @@ impl Menu {
             MenuItem::GameMode | MenuItem::StartingLevel | MenuItem::GoalSystem => {
                 self.change_value(true)
             }
+            MenuItem::HighScores => self.show_high_scores(self.game_mode, None),
             MenuItem::Options => {
                 self.page = MenuPage::Options;
                 self.selected_option = 0;
@@ -257,7 +292,24 @@ impl Menu {
             // Only a Marathon Levels Up, so only it has a Goal System to choose.
             MenuItem::GoalSystem if self.game_mode != GameMode::Marathon => {}
             MenuItem::GoalSystem => self.variable_goal = !self.variable_goal,
-            MenuItem::NewGame | MenuItem::Options | MenuItem::Help | MenuItem::Quit => {}
+            MenuItem::NewGame
+            | MenuItem::HighScores
+            | MenuItem::Options
+            | MenuItem::Help
+            | MenuItem::Quit => {}
+        }
+    }
+
+    /// Left and right switch variants, and Esc or Enter go back to the Main Menu.
+    fn handle_high_scores_input(&mut self, input: MenuInput) {
+        match input {
+            MenuInput::Left => self.table_mode = cycle(&MODES, self.table_mode, false),
+            MenuInput::Right => self.table_mode = cycle(&MODES, self.table_mode, true),
+            MenuInput::Back | MenuInput::Select => {
+                self.page = MenuPage::Main;
+                self.highlight = None;
+            }
+            MenuInput::Up | MenuInput::Down | MenuInput::Quit => {}
         }
     }
 
@@ -671,5 +723,69 @@ mod tests {
     fn test_cycle_moves_an_unknown_value_to_the_first() {
         assert_eq!(cycle(&PREVIEW_COUNTS, 9, true), 1);
         assert_eq!(cycle(&PREVIEW_COUNTS, 1, false), 6);
+    }
+
+    #[test]
+    fn test_high_scores_opens_on_the_chosen_mode_with_nothing_marked() {
+        let mut menu = menu_on(MenuItem::GameMode);
+        menu.handle_input(Right);
+        let mut menu = {
+            while menu.selected_item() != MenuItem::HighScores {
+                menu.handle_input(Down);
+            }
+            menu
+        };
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+        assert_eq!(menu.page(), MenuPage::HighScores);
+        assert_eq!(menu.table_mode(), GameMode::Sprint);
+        assert_eq!(menu.highlighted_rank(), None);
+    }
+
+    #[test]
+    fn test_high_scores_switches_tables_either_way_without_changing_the_mode() {
+        let mut menu = menu_on(MenuItem::HighScores);
+        menu.handle_input(Select);
+        for mode in [GameMode::Sprint, GameMode::Ultra, GameMode::Marathon] {
+            menu.handle_input(Right);
+            assert_eq!(menu.table_mode(), mode);
+        }
+        menu.handle_input(Left);
+        assert_eq!(menu.table_mode(), GameMode::Ultra);
+        menu.handle_input(Up);
+        menu.handle_input(Down);
+        assert_eq!(menu.page(), MenuPage::HighScores);
+        assert_eq!(menu.game_mode(), GameMode::Marathon);
+    }
+
+    #[test]
+    fn test_high_scores_goes_back_with_esc_or_enter_and_quit_exits() {
+        for key in [Back, Select] {
+            let mut menu = menu_on(MenuItem::HighScores);
+            menu.handle_input(Select);
+            assert_eq!(menu.handle_input(key), MenuResult::Stay);
+            assert_eq!(menu.page(), MenuPage::Main);
+            assert_eq!(menu.selected_item(), MenuItem::HighScores);
+        }
+        let mut menu = menu_on(MenuItem::HighScores);
+        menu.handle_input(Select);
+        assert_eq!(menu.handle_input(Quit), MenuResult::Exit);
+    }
+
+    #[test]
+    fn test_a_new_result_is_marked_in_its_own_table_until_the_page_closes() {
+        let mut menu = menu();
+        menu.show_high_scores(GameMode::Ultra, Some(3));
+        assert_eq!(menu.page(), MenuPage::HighScores);
+        assert_eq!(menu.table_mode(), GameMode::Ultra);
+        assert_eq!(menu.highlighted_rank(), Some(3));
+
+        menu.handle_input(Right);
+        assert_eq!(menu.highlighted_rank(), None);
+        menu.handle_input(Left);
+        assert_eq!(menu.highlighted_rank(), Some(3));
+
+        menu.handle_input(Back);
+        menu.show_high_scores(GameMode::Ultra, None);
+        assert_eq!(menu.highlighted_rank(), None);
     }
 }

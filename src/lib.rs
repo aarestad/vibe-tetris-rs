@@ -3,6 +3,7 @@ pub mod board;
 pub mod config;
 pub mod game;
 pub mod game_state;
+pub mod high_scores;
 pub mod input;
 pub mod menu;
 pub mod scoring;

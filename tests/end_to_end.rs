@@ -328,6 +328,41 @@ impl Terminal {
             .count()
     }
 
+    /// Hard Drops until the stack reaches the top.
+    fn stack_to_game_over(&self) {
+        let start = Instant::now();
+        while !self.shows("GAME OVER") {
+            assert!(
+                start.elapsed() < TIMEOUT,
+                "no Game Over:\n{}",
+                self.screen_text()
+            );
+            self.send(" ");
+            sleep_ms(30);
+        }
+    }
+
+    /// Types a name for a new high score, then leaves the table for the menu.
+    fn enter_name(&self, name: &str) {
+        // Keys in the first moments of Game Over are ignored on purpose.
+        sleep_ms(600);
+        self.send(name);
+        self.wait_for_text(&format!("Name: {name}"));
+        self.send(ENTER);
+        self.wait_for_text("HIGH SCORES");
+        self.send(ENTER);
+    }
+
+    fn quit_and_exit_code_from_menu(&mut self) -> u32 {
+        self.send("q");
+        self.wait_for_exit()
+    }
+
+    /// The scores file as the program last saved it.
+    fn scores_file(&self) -> String {
+        fs::read_to_string(self._config.0.join("tetris_scores.json")).unwrap_or_default()
+    }
+
     /// The config file as the program last saved it.
     fn config_file(&self) -> String {
         fs::read_to_string(self._config.0.join("tetris_config.json")).unwrap_or_default()
@@ -521,7 +556,7 @@ fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
 
     terminal.send("\x1b");
     terminal.wait_for_text("> Options");
-    for _ in 0..4 {
+    for _ in 0..5 {
         terminal.send(UP);
     }
     terminal.wait_for_text("> New Game");
@@ -749,17 +784,65 @@ fn test_stacking_to_the_top_reaches_game_over() {
     let mut terminal = Terminal::start(KeyReleases::NotSupported);
     terminal.wait_for_piece();
 
-    let start = Instant::now();
-    while !terminal.shows("GAME OVER") {
-        assert!(
-            start.elapsed() < TIMEOUT,
-            "no Game Over:\n{}",
-            terminal.screen_text()
-        );
-        terminal.send(" ");
-        sleep_ms(30);
+    terminal.stack_to_game_over();
+    // Hard Drops score points, so the game makes the empty High Score Table.
+    terminal.wait_for_text("New High Score: #1");
+    terminal.enter_name("Robo");
+    terminal.wait_for_text("> New Game");
+    assert_eq!(terminal.quit_and_exit_code_from_menu(), 0);
+}
+
+#[test]
+fn test_a_new_high_score_is_named_saved_and_shown_from_the_menu() {
+    let mut terminal = Terminal::start(KeyReleases::NotSupported);
+    terminal.wait_for_piece();
+    terminal.stack_to_game_over();
+    terminal.wait_for_text("New High Score: #1");
+
+    // Keys held from play are ignored, then the name is typed, corrected and confirmed.
+    sleep_ms(600);
+    terminal.send("Ann!x\x7f");
+    terminal.wait_for_text("Name: Ann!");
+    terminal.send(ENTER);
+    terminal.wait_for_text("HIGH SCORES");
+    terminal.wait_for_text("< Marathon >");
+    terminal.wait_for_text(" 1. Ann!");
+    terminal.wait_for_text(" 2. ---");
+    terminal.wait_for("the score to be saved", |t| {
+        t.scores_file().contains("\"name\": \"Ann!\"")
+    });
+
+    // Other variants have their own, empty tables.
+    terminal.send(RIGHT);
+    terminal.wait_for_text("< Sprint >");
+    terminal.wait_for("an empty Sprint table", |t| t.shows(" 1. ---"));
+
+    // Back to the menu, which can open the table again.
+    terminal.send(ENTER);
+    terminal.wait_for_text("> New Game");
+    for _ in 0..4 {
+        terminal.send(DOWN);
     }
+    terminal.wait_for_text("> High Scores");
+    terminal.send(ENTER);
+    terminal.wait_for_text(" 1. Ann!");
+    terminal.send("\x1b");
+    terminal.wait_for_text("> High Scores");
+    terminal.send("q");
+    assert_eq!(terminal.wait_for_exit(), 0);
+}
+
+#[test]
+fn test_quitting_a_game_does_not_ask_for_a_name() {
+    let mut terminal = Terminal::start(KeyReleases::NotSupported);
+    terminal.wait_for_piece();
+    terminal.send(" ");
+    terminal.wait_for("a score", |t| t.score() > 0);
+    terminal.send("q");
+    terminal.wait_for_text("Press any key");
+    assert!(!terminal.shows("New High Score"));
     assert_eq!(terminal.exit_with_any_key(), 0);
+    assert_eq!(terminal.scores_file(), "");
 }
 
 // --- Screens ---
@@ -817,7 +900,8 @@ fn test_quit_works_from_pause_and_help() {
 
 #[test]
 fn test_small_terminal_shows_a_message_until_resized() {
-    let terminal = Terminal::start_with(SOUND_OFF, KeyReleases::NotSupported, 40, 15);
+    // Big enough for the menu, but not for the playing field.
+    let terminal = Terminal::start_with(SOUND_OFF, KeyReleases::NotSupported, 45, 18);
     terminal.wait_for_text("Terminal too small");
 
     terminal.resize(WIDTH, HEIGHT);

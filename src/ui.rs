@@ -1,6 +1,7 @@
 use crate::config::GameMode;
 use crate::config::LockDownMode;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
+use crate::high_scores::{HighScore, HighScores, NAME_MAX_LEN, TABLE_SIZE};
 use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
 use crate::scoring::SPRINT_LINES;
 use crate::screen::Screen;
@@ -26,9 +27,13 @@ const LABEL_COLOR: Color = Color::Cyan;
 const PROGRESS_BAR_WIDTH: usize = 12;
 /// Width of the boxes drawn over the screen.
 const BOX_WIDTH: u16 = 30;
-/// Smallest terminal that fits the taller of the menu's two pages, which is the controls list.
-const MENU_MIN_WIDTH: u16 = BOX_WIDTH;
-const MENU_MIN_HEIGHT: u16 = 13;
+/// Width of the High Score Table, which needs room for its columns.
+const TABLE_BOX_WIDTH: u16 = 40;
+/// Smallest terminal that fits every menu page. The High Score Table is the widest and
+/// tallest.
+const MENU_MIN_WIDTH: u16 = TABLE_BOX_WIDTH;
+const MENU_MIN_HEIGHT: u16 = TABLE_SIZE as u16 + 7;
+const HIGHLIGHT_COLOR: Color = Color::Yellow;
 
 pub struct Renderer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -59,13 +64,13 @@ impl Renderer {
         }
     }
 
-    /// Draws the Main Menu or its Options or help page.
-    pub fn render_menu(&mut self, menu: &Menu) -> Result<()> {
-        self.terminal.draw(|f| Self::draw_menu(f, menu))?;
+    /// Draws the Main Menu or one of its pages.
+    pub fn render_menu(&mut self, menu: &Menu, scores: &HighScores) -> Result<()> {
+        self.terminal.draw(|f| Self::draw_menu(f, menu, scores))?;
         Ok(())
     }
 
-    fn draw_menu(f: &mut Frame, menu: &Menu) {
+    fn draw_menu(f: &mut Frame, menu: &Menu, scores: &HighScores) {
         if f.area().width < MENU_MIN_WIDTH || f.area().height < MENU_MIN_HEIGHT {
             Self::draw_size_message(f, MENU_MIN_WIDTH, MENU_MIN_HEIGHT);
             return;
@@ -73,6 +78,11 @@ impl Renderer {
         match menu.page() {
             MenuPage::Main => {
                 Self::draw_centered_box(f, " TETRIS ", Self::menu_lines(menu), Alignment::Left);
+            }
+            MenuPage::HighScores => {
+                let lines = Self::high_score_lines(menu, scores);
+                let title = " HIGH SCORES ";
+                Self::draw_box_of_width(f, title, lines, Alignment::Left, TABLE_BOX_WIDTH);
             }
             MenuPage::Options => {
                 let lines = Self::options_lines(menu);
@@ -111,6 +121,7 @@ impl Renderer {
                         };
                         format!("Goal: < {goal} >")
                     }
+                    MenuItem::HighScores => "High Scores".to_string(),
                     MenuItem::Options => "Options".to_string(),
                     MenuItem::Help => "Help".to_string(),
                     MenuItem::Quit => "Quit".to_string(),
@@ -161,6 +172,63 @@ impl Renderer {
         lines.push(Line::from("↑ ↓ move   ← → change"));
         lines.push(Line::from("Saved as you change them"));
         lines
+    }
+
+    /// The High Score Table for one variant (Guideline 11.2), with the columns that matter to
+    /// it. Empty places are numbered so the table's size is clear.
+    fn high_score_lines(menu: &Menu, scores: &HighScores) -> Vec<Line<'static>> {
+        let mode = menu.table_mode();
+        let header = match mode {
+            GameMode::Marathon => format!(
+                "    {:<NAME_MAX_LEN$} {:>9} {:>5} {:>5}",
+                "Name", "Score", "Level", "Lines"
+            ),
+            GameMode::Sprint => {
+                format!("    {:<NAME_MAX_LEN$} {:>9} {:>9}", "Name", "Time", "Score")
+            }
+            GameMode::Ultra => format!(
+                "    {:<NAME_MAX_LEN$} {:>9} {:>5}",
+                "Name", "Score", "Lines"
+            ),
+        };
+        let mut lines = vec![
+            Line::from(format!("< {} >", Self::mode_name(mode))).alignment(Alignment::Center),
+            Line::from(""),
+            Self::label(&header),
+        ];
+        let table = scores.table(mode);
+        for rank in 0..TABLE_SIZE {
+            let text = match table.get(rank) {
+                Some(entry) => Self::high_score_row(rank, entry, mode),
+                None => format!("{:>2}. ---", rank + 1),
+            };
+            if menu.highlighted_rank() == Some(rank) {
+                let style = Style::default()
+                    .fg(HIGHLIGHT_COLOR)
+                    .add_modifier(Modifier::BOLD);
+                lines.push(Line::styled(text, style));
+            } else {
+                lines.push(Line::from(text));
+            }
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from("← → mode   Esc to go back").alignment(Alignment::Center));
+        lines
+    }
+
+    fn high_score_row(rank: usize, entry: &HighScore, mode: GameMode) -> String {
+        let place = format!("{:>2}. {:<NAME_MAX_LEN$}", rank + 1, entry.name);
+        match mode {
+            GameMode::Marathon => format!(
+                "{place} {:>9} {:>5} {:>5}",
+                entry.score, entry.level, entry.lines
+            ),
+            GameMode::Sprint => {
+                let time = Self::format_time(entry.time(), mode);
+                format!("{place} {time:>9} {:>9}", entry.score)
+            }
+            GameMode::Ultra => format!("{place} {:>9} {:>5}", entry.score, entry.lines),
+        }
     }
 
     /// One line of a menu page, marked when selected.
@@ -560,13 +628,23 @@ impl Renderer {
         Self::draw_box(f, state, " PAUSED ", lines, Alignment::Center);
     }
 
-    pub fn render_game_over(&mut self, state: &GameState) -> Result<()> {
+    /// Draws the Game Over screen. A result that made the High Score Table also asks for a
+    /// name, given here as its place from 0 and the name typed so far.
+    pub fn render_game_over(
+        &mut self,
+        state: &GameState,
+        new_high_score: Option<(usize, &str)>,
+    ) -> Result<()> {
         self.terminal
-            .draw(|f| Self::draw_game_over_screen(f, state))?;
+            .draw(|f| Self::draw_game_over_screen(f, state, new_high_score))?;
         Ok(())
     }
 
-    fn draw_game_over_screen(f: &mut Frame, state: &GameState) {
+    fn draw_game_over_screen(
+        f: &mut Frame,
+        state: &GameState,
+        new_high_score: Option<(usize, &str)>,
+    ) {
         Self::draw_game(f, state, false);
         let title = match state.outcome() {
             Some(GameOutcome::MarathonComplete) => " MARATHON COMPLETE ",
@@ -599,7 +677,29 @@ impl Renderer {
                 )));
             }
         }
-        lines.push(Line::from("Press any key"));
+        match new_high_score {
+            Some((rank, name)) => {
+                let style = Style::default()
+                    .fg(HIGHLIGHT_COLOR)
+                    .add_modifier(Modifier::BOLD);
+                lines.push(Line::from(""));
+                lines.push(Line::styled(
+                    format!("New High Score: #{}", rank + 1),
+                    style,
+                ));
+                // Padded to full length, so the line stays put while typing. The cursor goes
+                // once the name is full.
+                let field = if name.len() < NAME_MAX_LEN {
+                    format!("{name}_")
+                } else {
+                    name.to_string()
+                };
+                let width = NAME_MAX_LEN + 1;
+                lines.push(Line::from(format!("Name: {field:<width$}")));
+                lines.push(Line::from("Type a name, then Enter"));
+            }
+            None => lines.push(Line::from("Press any key")),
+        }
         Self::draw_box(f, state, title, lines, Alignment::Center);
     }
 
@@ -620,8 +720,19 @@ impl Renderer {
 
     /// Draws a centered box. The caller must make sure the terminal is large enough.
     fn draw_centered_box(f: &mut Frame, title: &str, lines: Vec<Line>, alignment: Alignment) {
+        Self::draw_box_of_width(f, title, lines, alignment, BOX_WIDTH);
+    }
+
+    /// Draws a centered box of the given width. The caller must make sure the terminal is large
+    /// enough.
+    fn draw_box_of_width(
+        f: &mut Frame,
+        title: &str,
+        lines: Vec<Line>,
+        alignment: Alignment,
+        width: u16,
+    ) {
         let height = lines.len() as u16 + 2;
-        let width = BOX_WIDTH;
         let area = Rect {
             x: (f.area().width - width) / 2,
             y: (f.area().height - height) / 2,
@@ -783,7 +894,7 @@ mod tests {
         let state = state();
         draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Paused));
         draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Help));
-        draw(10, 3, |f| Renderer::draw_game_over_screen(f, &state));
+        draw(10, 3, |f| Renderer::draw_game_over_screen(f, &state, None));
     }
 
     #[test]
@@ -857,7 +968,9 @@ mod tests {
     #[test]
     fn test_menu_lists_all_items_and_marks_the_selected_one() {
         let mut menu = menu();
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         for label in [
             "TETRIS",
             "> New Game",
@@ -872,7 +985,9 @@ mod tests {
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Right);
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         assert!(screen.contains("> Starting Level: < 2 >"));
         assert!(!screen.contains("> New Game"));
     }
@@ -885,7 +1000,9 @@ mod tests {
         menu.handle_input(MenuInput::Left);
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Right);
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         assert!(screen.contains("Starting Level: < 15 >"));
         assert!(screen.contains("> Goal: < Variable >"));
         assert!(screen.contains("Mode: < Marathon >"));
@@ -903,7 +1020,9 @@ mod tests {
     #[test]
     fn test_options_page_lists_every_option_with_its_value() {
         let menu = options_page();
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         for label in [
             "OPTIONS",
             "> Next Queue: < 3 >",
@@ -932,7 +1051,7 @@ mod tests {
         }
         menu.handle_input(MenuInput::Right);
         let screen = text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
-            Renderer::draw_menu(f, &menu)
+            Renderer::draw_menu(f, &menu, &HighScores::default())
         }));
         assert!(screen.contains("Lock Down: < Classic >"), "{screen}");
         assert!(screen.contains("> Sound Effects: < Off >"), "{screen}");
@@ -941,7 +1060,9 @@ mod tests {
 
     #[test]
     fn test_main_menu_lists_options() {
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu())));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu(), &HighScores::default())
+        }));
         assert!(screen.contains("  Options"), "{screen}");
     }
 
@@ -951,7 +1072,9 @@ mod tests {
         menu.handle_input(MenuInput::Up);
         menu.handle_input(MenuInput::Up);
         menu.handle_input(MenuInput::Select);
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         assert!(screen.contains("CONTROLS"));
         assert!(screen.contains("Esc to go back"));
         assert!(!screen.contains("New Game"));
@@ -962,7 +1085,7 @@ mod tests {
         let mut menu = menu();
         let fits = |menu: &Menu| {
             text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
-                Renderer::draw_menu(f, menu)
+                Renderer::draw_menu(f, menu, &HighScores::default())
             }))
         };
         assert!(fits(&menu).contains("Enter to choose"));
@@ -973,7 +1096,9 @@ mod tests {
 
         let menu = self::menu();
         for (width, height) in [(MENU_MIN_WIDTH - 1, 40), (80, MENU_MIN_HEIGHT - 1), (5, 2)] {
-            let screen = text(&draw(width, height, |f| Renderer::draw_menu(f, &menu)));
+            let screen = text(&draw(width, height, |f| {
+                Renderer::draw_menu(f, &menu, &HighScores::default())
+            }));
             assert!(screen.contains("Term"), "{width}x{height}:\n{screen}");
         }
     }
@@ -1029,7 +1154,7 @@ mod tests {
             piece: None,
         };
         let buffer = draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state)
+            Renderer::draw_game_over_screen(f, &state, None)
         });
         assert!(text(&buffer).contains("MARATHON COMPLETE"));
     }
@@ -1061,7 +1186,7 @@ mod tests {
             piece: None,
         };
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state)
+            Renderer::draw_game_over_screen(f, &state, None)
         }));
         assert!(screen.contains("SPRINT COMPLETE"), "{screen}");
         assert!(screen.contains("Time: 01:01.23"), "{screen}");
@@ -1115,7 +1240,7 @@ mod tests {
             piece: None,
         };
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state)
+            Renderer::draw_game_over_screen(f, &state, None)
         }));
         assert!(screen.contains("TIME UP"), "{screen}");
         assert!(screen.contains("Final Score: 12345"), "{screen}");
@@ -1129,7 +1254,9 @@ mod tests {
         let mut menu = menu();
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Left);
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         assert!(screen.contains("> Mode: < Ultra >"), "{screen}");
         assert!(screen.contains("Goal: 3 Minutes"), "{screen}");
     }
@@ -1139,7 +1266,9 @@ mod tests {
         let mut menu = menu();
         menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Right);
-        let screen = text(&draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, &menu)));
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu, &HighScores::default())
+        }));
         assert!(screen.contains("> Mode: < Sprint >"), "{screen}");
         assert!(screen.contains("Goal: 40 Lines"), "{screen}");
     }
@@ -1151,5 +1280,194 @@ mod tests {
         state.phase = Phase::Falling(Tetrimino::at_generation(TetriminoType::O, 10));
         // At generation, before any drop, the O sits entirely above the Skyline.
         assert_eq!(count(&draw_state(&state), "█"), 8);
+    }
+
+    fn high_score(name: &str, score: u64, level: u32, lines: u32, time_ms: u64) -> HighScore {
+        HighScore {
+            name: name.to_string(),
+            score,
+            level,
+            lines,
+            time_ms,
+        }
+    }
+
+    fn table_page(mode: GameMode, highlight: Option<usize>) -> Menu {
+        let mut menu = menu();
+        menu.show_high_scores(mode, highlight);
+        menu
+    }
+
+    fn draw_table(menu: &Menu, scores: &HighScores) -> Buffer {
+        draw(WIDTH, HEIGHT, |f| Renderer::draw_menu(f, menu, scores))
+    }
+
+    /// The line of the screen holding `text`.
+    fn line_with<'a>(screen: &'a str, text: &str) -> &'a str {
+        screen
+            .lines()
+            .find(|line| line.contains(text))
+            .unwrap_or_else(|| panic!("no {text:?} in:\n{screen}"))
+    }
+
+    #[test]
+    fn test_main_menu_lists_high_scores() {
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_menu(f, &menu(), &HighScores::default())
+        }));
+        assert!(screen.contains("  High Scores"), "{screen}");
+    }
+
+    #[test]
+    fn test_marathon_table_shows_name_score_level_and_lines() {
+        let mut scores = HighScores::default();
+        scores.insert(GameMode::Marathon, high_score("Ann", 12_345, 7, 64, 0));
+        let screen = text(&draw_table(&table_page(GameMode::Marathon, None), &scores));
+        assert!(screen.contains("HIGH SCORES"), "{screen}");
+        assert!(screen.contains("< Marathon >"), "{screen}");
+        let header = line_with(&screen, "Name");
+        for column in ["Score", "Level", "Lines"] {
+            assert!(header.contains(column), "{header}");
+        }
+        let row = line_with(&screen, " 1. Ann");
+        assert!(
+            row.contains("12345") && row.contains(" 7 ") && row.contains(" 64"),
+            "{row}"
+        );
+        for rank in 2..=TABLE_SIZE {
+            assert!(screen.contains(&format!("{rank:>2}. ---")), "{screen}");
+        }
+        assert!(screen.contains("Esc to go back"), "{screen}");
+    }
+
+    #[test]
+    fn test_sprint_table_shows_time_to_the_hundredth_and_ultra_has_no_level() {
+        let mut scores = HighScores::default();
+        scores.insert(GameMode::Sprint, high_score("Bo", 900, 1, 40, 83_456));
+        scores.insert(GameMode::Ultra, high_score("Cy", 7_000, 1, 51, 180_000));
+
+        let screen = text(&draw_table(&table_page(GameMode::Sprint, None), &scores));
+        let header = line_with(&screen, "Name");
+        assert!(
+            header.contains("Time") && header.contains("Score"),
+            "{header}"
+        );
+        assert!(!header.contains("Level"), "{header}");
+        assert!(
+            line_with(&screen, " 1. Bo").contains("01:23.45"),
+            "{screen}"
+        );
+
+        let screen = text(&draw_table(&table_page(GameMode::Ultra, None), &scores));
+        let header = line_with(&screen, "Name");
+        assert!(
+            header.contains("Score") && header.contains("Lines"),
+            "{header}"
+        );
+        assert!(
+            !header.contains("Level") && !header.contains("Time"),
+            "{header}"
+        );
+        assert!(line_with(&screen, " 1. Cy").contains("7000"), "{screen}");
+    }
+
+    #[test]
+    fn test_new_result_is_highlighted_only_in_its_own_table() {
+        let mut scores = HighScores::default();
+        scores.insert(GameMode::Marathon, high_score("Old", 900, 1, 0, 0));
+        scores.insert(GameMode::Marathon, high_score("New", 500, 1, 0, 0));
+        scores.insert(GameMode::Ultra, high_score("Old", 900, 1, 0, 0));
+        scores.insert(GameMode::Ultra, high_score("Other", 500, 1, 0, 0));
+        let is_highlighted = |buffer: &Buffer, row_text: &str| {
+            let screen = text(buffer);
+            let y = screen
+                .lines()
+                .position(|line| line.contains(row_text))
+                .unwrap() as u16;
+            // The border is a multi-byte symbol, so count symbols, not bytes, to find the column.
+            let line = screen.lines().nth(y as usize).unwrap();
+            let x = line[..line.find(row_text).unwrap()].chars().count() as u16;
+            // The name, past the rank.
+            let cell = &buffer[(x + 4, y)];
+            assert_eq!(cell.symbol(), &row_text[4..5], "wrong cell in {line:?}");
+            cell.fg == HIGHLIGHT_COLOR
+        };
+
+        let mut menu = table_page(GameMode::Marathon, Some(1));
+        let buffer = draw_table(&menu, &scores);
+        assert!(is_highlighted(&buffer, " 2. New"));
+        assert!(!is_highlighted(&buffer, " 1. Old"));
+
+        menu.handle_input(MenuInput::Left);
+        let buffer = draw_table(&menu, &scores);
+        assert!(text(&buffer).contains("< Ultra >"));
+        assert!(!is_highlighted(&buffer, " 2. Other"));
+    }
+
+    #[test]
+    fn test_full_table_of_longest_values_fits_at_the_minimum_menu_size() {
+        let mut scores = HighScores::default();
+        for rank in 0..TABLE_SIZE as u64 {
+            let score = 99_999_999 - rank;
+            let entry = high_score("WWWWWWWWWW", score, 15, 999, 3_599_990);
+            for mode in [GameMode::Marathon, GameMode::Sprint, GameMode::Ultra] {
+                scores.insert(mode, entry.clone());
+            }
+        }
+        for mode in [GameMode::Marathon, GameMode::Sprint, GameMode::Ultra] {
+            let menu = table_page(mode, None);
+            let screen = text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
+                Renderer::draw_menu(f, &menu, &scores)
+            }));
+            assert!(screen.contains("Esc to go back"), "{mode:?}:\n{screen}");
+            assert!(screen.contains("10. WWWWWWWWWW"), "{mode:?}:\n{screen}");
+            let last_column = match mode {
+                GameMode::Sprint => "99999990",
+                GameMode::Marathon | GameMode::Ultra => "999",
+            };
+            assert!(
+                line_with(&screen, "10. WWWWWWWWWW").contains(last_column),
+                "{mode:?}:\n{screen}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_game_over_asks_for_a_name_only_for_a_new_high_score() {
+        let mut state = state();
+        state.scoring.score = 4_200;
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::BlockOut,
+            piece: None,
+        };
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state, Some((2, "Ann")))
+        }));
+        assert!(screen.contains("Final Score: 4200"), "{screen}");
+        assert!(screen.contains("New High Score: #3"), "{screen}");
+        assert!(screen.contains("Name: Ann_"), "{screen}");
+        assert!(screen.contains("Enter"), "{screen}");
+        assert!(!screen.contains("Press any key"), "{screen}");
+
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state, None)
+        }));
+        assert!(screen.contains("Press any key"), "{screen}");
+        assert!(!screen.contains("New High Score"), "{screen}");
+    }
+
+    #[test]
+    fn test_name_entry_fits_in_the_game_over_box_at_the_smallest_game_size() {
+        let mut state = sprint_state();
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::SprintComplete,
+            piece: None,
+        };
+        let screen = text(&draw(50, 24, |f| {
+            Renderer::draw_game_over_screen(f, &state, Some((9, "WWWWWWWWWW")))
+        }));
+        assert!(screen.contains("New High Score: #10"), "{screen}");
+        assert!(screen.contains("Name: WWWWWWWWWW"), "{screen}");
+        assert!(screen.contains("Type a name, then Enter"), "{screen}");
     }
 }
