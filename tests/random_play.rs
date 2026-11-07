@@ -101,6 +101,7 @@ fn test_random_play_keeps_rules_in_every_mode() {
                     enable_sound: false,
                     starting_level: (seed % 15 + 1) as u32,
                     preview_count: (seed % 6 + 1) as usize,
+                    starting_blocks: (seed % 11) as u32,
                     ..GameConfig::default()
                 };
                 play(config.clone(), false, seed);

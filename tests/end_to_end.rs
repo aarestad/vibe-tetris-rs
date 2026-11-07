@@ -433,12 +433,39 @@ fn test_program_opens_on_the_main_menu_with_no_game_running() {
         "Mode: < Marathon >",
         "Starting Level: < 1 >",
         "Goal: < Fixed >",
+        "Starting Blocks: < 0 >",
         "Help",
         "Quit",
     ] {
         assert!(text.contains(label), "missing {label}:\n{text}");
     }
     assert!(!text.contains("SCORE"));
+}
+
+#[test]
+fn test_starting_blocks_chosen_in_the_menu_fill_the_bottom_of_the_matrix() {
+    let terminal = Terminal::start_at_menu();
+    for _ in 0..4 {
+        terminal.send(DOWN);
+    }
+    for _ in 0..3 {
+        terminal.send(RIGHT);
+    }
+    terminal.wait_for_text("> Starting Blocks: < 3 >");
+
+    for _ in 0..4 {
+        terminal.send(UP);
+    }
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_text("[H] Help");
+    // Every one of the bottom 3 rows has Minos, and the Tetrimino in play is far above them.
+    terminal.wait_for("Starting Blocks in the bottom 3 rows", |t| {
+        let blocks = t.blocks();
+        let bottom = blocks.iter().map(|&(_, row)| row).max().unwrap_or(0);
+        blocks.len() > 4 + 3
+            && (bottom.saturating_sub(2)..=bottom).all(|row| blocks.iter().any(|&(_, r)| r == row))
+    });
 }
 
 #[test]
@@ -556,7 +583,7 @@ fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
 
     terminal.send("\x1b");
     terminal.wait_for_text("> Options");
-    for _ in 0..5 {
+    for _ in 0..6 {
         terminal.send(UP);
     }
     terminal.wait_for_text("> New Game");
@@ -824,7 +851,7 @@ fn test_a_new_high_score_is_named_saved_and_shown_from_the_menu() {
     // Back to the menu, which can open the table again.
     terminal.send(ENTER);
     terminal.wait_for_text("> New Game");
-    for _ in 0..4 {
+    for _ in 0..5 {
         terminal.send(DOWN);
     }
     terminal.wait_for_text("> High Scores");

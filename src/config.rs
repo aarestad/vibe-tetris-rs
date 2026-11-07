@@ -29,6 +29,9 @@ pub enum GameMode {
     Ultra,
 }
 
+/// Most rows of Starting Blocks a game can begin with.
+pub const MAX_STARTING_BLOCKS: u32 = 10;
+
 /// Game settings. Any field missing from the config file takes its default.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -41,6 +44,10 @@ pub struct GameConfig {
     pub game_mode: GameMode,
     /// Level to start from, 1 to 15. Higher starts raise the first Goal.
     pub starting_level: u32,
+    /// Rows of Starting Blocks at the bottom of the Matrix when a game begins (Guideline 2.4),
+    /// from 0 to 10 and at most half the Matrix. Each row has random Minos and at least one
+    /// gap, so the player has lines to dig out from the start.
+    pub starting_blocks: u32,
     /// Lines per level in the Fixed Goal System. Sprint and Ultra ignore it.
     /// The Guideline standard is 10.
     pub lines_per_level: u32,
@@ -74,6 +81,7 @@ impl Default for GameConfig {
             board_height: 20,
             game_mode: GameMode::Marathon,
             starting_level: 1,
+            starting_blocks: 0,
             lines_per_level: 10,
             enable_ghost_piece: true,
             enable_hold: true,
@@ -117,6 +125,12 @@ impl GameConfig {
         fs::write(path, json + "\n").with_context(|| format!("writing {}", path.display()))
     }
 
+    /// Most rows of Starting Blocks this Matrix allows: 10, or half its height if that is
+    /// less, so there is always room to play.
+    pub fn max_starting_blocks(&self) -> u32 {
+        MAX_STARTING_BLOCKS.min(self.board_height as u32 / 2)
+    }
+
     /// Checks that all values can produce a working game.
     pub fn validate(&self) -> Result<()> {
         ensure!(self.board_width >= 4, "board_width must be at least 4");
@@ -124,6 +138,10 @@ impl GameConfig {
         ensure!(
             (1..=15).contains(&self.starting_level),
             "starting_level must be from 1 to 15"
+        );
+        ensure!(
+            self.starting_blocks <= self.max_starting_blocks(),
+            "starting_blocks must be at most {MAX_STARTING_BLOCKS} and half of board_height"
         );
         ensure!(
             self.lines_per_level >= 1,
@@ -201,6 +219,15 @@ mod tests {
                 ..Default::default()
             },
             GameConfig {
+                starting_blocks: MAX_STARTING_BLOCKS + 1,
+                ..Default::default()
+            },
+            GameConfig {
+                board_height: 8,
+                starting_blocks: 5,
+                ..Default::default()
+            },
+            GameConfig {
                 lines_per_level: 0,
                 ..Default::default()
             },
@@ -216,6 +243,21 @@ mod tests {
         for config in bad {
             assert!(config.validate().is_err(), "{config:?} should be rejected");
         }
+    }
+
+    #[test]
+    fn test_starting_blocks_default_to_none_and_allow_half_the_matrix() {
+        assert_eq!(GameConfig::default().starting_blocks, 0);
+        let config = GameConfig {
+            starting_blocks: MAX_STARTING_BLOCKS,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+        let short = GameConfig {
+            board_height: 8,
+            ..Default::default()
+        };
+        assert_eq!(short.max_starting_blocks(), 4);
     }
 
     #[test]

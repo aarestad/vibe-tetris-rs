@@ -102,10 +102,14 @@ impl Board {
         &self.cells
     }
 
-    #[cfg(test)]
+    /// Sets one cell, as for Starting Blocks. A cell outside the Matrix and Buffer Zone is
+    /// ignored.
     pub fn set_cell(&mut self, x: usize, y: i32, value: Option<TetriminoType>) {
-        let row = self.row_index(y).unwrap();
-        self.cells[row][x] = value;
+        if let Some(row) = self.row_index(y)
+            && x < self.width
+        {
+            self.cells[row][x] = value;
+        }
     }
 }
 

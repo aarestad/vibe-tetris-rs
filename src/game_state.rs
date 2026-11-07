@@ -3,9 +3,9 @@ use crate::config::{GameConfig, GameMode, LockDownMode};
 use crate::scoring::{Scoring, TSpin};
 use crate::sound::SoundEffect;
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
-use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
+use rand::{RngExt, SeedableRng};
 use std::time::Duration;
 
 /// Length of an Ultra. Guideline 12.3 allows two or three minutes.
@@ -153,7 +153,42 @@ impl GameState {
 
         game_state.refill_bag();
         game_state.populate_next_pieces();
+        game_state.add_starting_blocks();
         game_state
+    }
+
+    /// Fills the bottom rows of the Matrix with Starting Blocks (Guideline 2.4). Each cell
+    /// is a Mino of a random Tetrimino's color half the time, and each row has at least one
+    /// gap and at least one Mino. Uses the same seeded randomness as the bag, after the first
+    /// bag is drawn, so a game with no Starting Blocks keeps the same order of Tetriminos.
+    fn add_starting_blocks(&mut self) {
+        const COLORS: [TetriminoType; 7] = [
+            TetriminoType::I,
+            TetriminoType::O,
+            TetriminoType::T,
+            TetriminoType::S,
+            TetriminoType::Z,
+            TetriminoType::J,
+            TetriminoType::L,
+        ];
+        let width = self.board.get_width();
+        let bottom = self.board.get_height() as i32 - 1;
+        for row in 0..self.config.starting_blocks as i32 {
+            let mut cells: Vec<Option<TetriminoType>> = (0..width)
+                .map(|_| {
+                    let color = COLORS[self.bag_rng.random_range(0..COLORS.len())];
+                    self.bag_rng.random_bool(0.5).then_some(color)
+                })
+                .collect();
+            let gap = self.bag_rng.random_range(0..width);
+            cells[gap] = None;
+            if cells.iter().all(Option::is_none) {
+                cells[(gap + 1) % width] = Some(COLORS[gap % COLORS.len()]);
+            }
+            for (x, cell) in cells.into_iter().enumerate() {
+                self.board.set_cell(x, bottom - row, cell);
+            }
+        }
     }
 
     pub fn board(&self) -> &Board {
@@ -1101,6 +1136,49 @@ mod tests {
         assert_eq!(state.scoring.score, 20);
         assert!(state.current_piece().is_none());
         assert_eq!(state.board.get_cell(4, 19), Some(TetriminoType::O));
+    }
+
+    fn with_starting_blocks(rows: u32, seed: u64) -> GameState {
+        GameState::with_seed(
+            GameConfig {
+                starting_blocks: rows,
+                enable_sound: false,
+                ..GameConfig::default()
+            },
+            seed,
+        )
+    }
+
+    #[test]
+    fn test_starting_blocks_fill_only_the_bottom_rows_and_leave_gaps() {
+        for seed in 0..50 {
+            let state = with_starting_blocks(6, seed);
+            let board = &state.board;
+            let (width, height) = (board.get_width(), board.get_height() as i32);
+            for y in -2..height {
+                let minos = (0..width)
+                    .filter(|&x| board.get_cell(x, y).is_some())
+                    .count();
+                if y >= height - 6 {
+                    assert!((1..width).contains(&minos), "seed {seed} row {y}: {minos}");
+                } else {
+                    assert_eq!(minos, 0, "seed {seed} row {y}");
+                }
+            }
+            assert!(board.get_full_lines().is_empty(), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn test_starting_blocks_repeat_with_the_seed_and_keep_the_first_tetriminos() {
+        let first = with_starting_blocks(5, 7);
+        let again = with_starting_blocks(5, 7);
+        assert_eq!(first.board.cells(), again.board.cells());
+        assert_eq!(first.next_pieces, with_starting_blocks(0, 7).next_pieces);
+        assert_ne!(
+            first.board.cells(),
+            with_starting_blocks(5, 8).board.cells()
+        );
     }
 
     #[test]

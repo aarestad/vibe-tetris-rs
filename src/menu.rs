@@ -35,6 +35,8 @@ pub enum MenuItem {
     GameMode,
     StartingLevel,
     GoalSystem,
+    /// Rows of Starting Blocks (Guideline 2.4).
+    StartingBlocks,
     HighScores,
     Options,
     Help,
@@ -43,11 +45,12 @@ pub enum MenuItem {
 
 impl MenuItem {
     /// All items in the order shown.
-    pub const ALL: [MenuItem; 8] = [
+    pub const ALL: [MenuItem; 9] = [
         MenuItem::NewGame,
         MenuItem::GameMode,
         MenuItem::StartingLevel,
         MenuItem::GoalSystem,
+        MenuItem::StartingBlocks,
         MenuItem::HighScores,
         MenuItem::Options,
         MenuItem::Help,
@@ -145,6 +148,9 @@ pub struct Menu {
     game_mode: GameMode,
     starting_level: u32,
     variable_goal: bool,
+    starting_blocks: u32,
+    /// Most rows of Starting Blocks the configured Matrix allows.
+    max_starting_blocks: u32,
     options: Options,
     /// The variant whose table the High Scores page shows.
     table_mode: GameMode,
@@ -162,6 +168,8 @@ impl Menu {
             game_mode: config.game_mode,
             starting_level: config.starting_level,
             variable_goal: config.enable_variable_goal,
+            starting_blocks: config.starting_blocks,
+            max_starting_blocks: config.max_starting_blocks(),
             options: Options::from_config(config),
             table_mode: config.game_mode,
             highlight: None,
@@ -190,6 +198,10 @@ impl Menu {
 
     pub fn variable_goal(&self) -> bool {
         self.variable_goal
+    }
+
+    pub fn starting_blocks(&self) -> u32 {
+        self.starting_blocks
     }
 
     pub fn options(&self) -> Options {
@@ -222,6 +234,7 @@ impl Menu {
             game_mode: self.game_mode,
             starting_level: self.starting_level,
             enable_variable_goal: self.variable_goal,
+            starting_blocks: self.starting_blocks,
             ..base.clone()
         };
         self.options.apply_to(&mut config);
@@ -268,9 +281,10 @@ impl Menu {
     fn select(&mut self) -> MenuResult {
         match self.selected_item() {
             MenuItem::NewGame => return MenuResult::StartGame,
-            MenuItem::GameMode | MenuItem::StartingLevel | MenuItem::GoalSystem => {
-                self.change_value(true)
-            }
+            MenuItem::GameMode
+            | MenuItem::StartingLevel
+            | MenuItem::GoalSystem
+            | MenuItem::StartingBlocks => self.change_value(true),
             MenuItem::HighScores => self.show_high_scores(self.game_mode, None),
             MenuItem::Options => {
                 self.page = MenuPage::Options;
@@ -297,6 +311,11 @@ impl Menu {
             // Only a Marathon Levels Up, so only it has a Goal System to choose.
             MenuItem::GoalSystem if self.game_mode != GameMode::Marathon => {}
             MenuItem::GoalSystem => self.variable_goal = !self.variable_goal,
+            MenuItem::StartingBlocks => {
+                let choices = self.max_starting_blocks + 1;
+                let step = if forward { 1 } else { choices - 1 };
+                self.starting_blocks = (self.starting_blocks + step) % choices;
+            }
             MenuItem::NewGame
             | MenuItem::HighScores
             | MenuItem::Options
@@ -370,6 +389,7 @@ fn cycle<T: Copy + PartialEq>(values: &[T], current: T, forward: bool) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MAX_STARTING_BLOCKS;
     use MenuInput::*;
 
     fn menu() -> Menu {
@@ -490,6 +510,40 @@ mod tests {
     }
 
     #[test]
+    fn test_starting_blocks_reach_every_count_and_wrap() {
+        let mut menu = menu_on(MenuItem::StartingBlocks);
+        assert_eq!(menu.starting_blocks(), 0);
+        for rows in 1..=MAX_STARTING_BLOCKS {
+            menu.handle_input(Right);
+            assert_eq!(menu.starting_blocks(), rows);
+        }
+        menu.handle_input(Right);
+        assert_eq!(menu.starting_blocks(), 0);
+        menu.handle_input(Left);
+        assert_eq!(menu.starting_blocks(), MAX_STARTING_BLOCKS);
+
+        menu.handle_input(Left);
+        let config = menu.game_config(&GameConfig::default());
+        assert_eq!(config.starting_blocks, MAX_STARTING_BLOCKS - 1);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_starting_blocks_stop_at_half_a_short_matrix() {
+        let config = GameConfig {
+            board_height: 6,
+            ..GameConfig::default()
+        };
+        let mut menu = Menu::new(&config);
+        while menu.selected_item() != MenuItem::StartingBlocks {
+            menu.handle_input(Down);
+        }
+        menu.handle_input(Left);
+        assert_eq!(menu.starting_blocks(), 3);
+        assert!(menu.game_config(&config).validate().is_ok());
+    }
+
+    #[test]
     fn test_goal_system_toggles_either_way() {
         let mut menu = menu_on(MenuItem::GoalSystem);
         menu.handle_input(Right);
@@ -513,6 +567,7 @@ mod tests {
             assert_eq!(menu.game_mode(), GameMode::Marathon, "{item:?}");
             assert_eq!(menu.starting_level(), 1, "{item:?}");
             assert!(!menu.variable_goal(), "{item:?}");
+            assert_eq!(menu.starting_blocks(), 0, "{item:?}");
         }
     }
 

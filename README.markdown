@@ -7,8 +7,8 @@ Vibe-coded Tetris CLI implementation. Caveat lector!
 Background music is converted at build time and needs `timidity`; without it, the game builds
 with no music.
 
-The game opens on the Main Menu, where you can start a game, choose the mode, starting level and
-goal system, change options, see the high scores, read the controls or quit.
+The game opens on the Main Menu, where you can start a game, choose the mode, starting level, goal
+system and rows of Starting Blocks, change options, see the high scores, read the controls or quit.
 
 At Game Over, the screen shows your result and statistics: Singles, Doubles, Triples, Tetrises,
 T-Spins, Tetriminos placed and lines per minute. A game that makes the top 10 of its mode's High
@@ -17,8 +17,8 @@ are saved to `tetris_scores.json`. A new record, a completed Marathon or any pla
 earns a congratulatory message and fireworks, with more fireworks for better results.
 
 The Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound
-effects. Each change is saved to `tetris_config.json` right away. The mode, starting level and goal
-system last only until the program exits.
+effects. Each change is saved to `tetris_config.json` right away. The mode, starting level, goal
+system and Starting Blocks last only until the program exits.
 
 There are three modes:
 
@@ -67,6 +67,7 @@ in the game rewrites the file with every setting filled in.
   "board_height": 20,
   "game_mode": "marathon",
   "starting_level": 1,
+  "starting_blocks": 0,
   "lines_per_level": 10,
   "enable_ghost_piece": true,
   "enable_hold": true,
@@ -85,5 +86,8 @@ in the game rewrites the file with every setting filled in.
 `enable_sound_effects` control the background music and the sound effects separately.
 
 `game_mode` can be `marathon`, `sprint` or `ultra`.
+
+`starting_blocks` fills that many rows at the bottom of the Matrix with random Minos when a game
+begins, from 0 to 10 and at most half of `board_height`. Every row has at least one gap.
 
 `lock_down_mode` can be `extended`, `infinite` or `classic`.

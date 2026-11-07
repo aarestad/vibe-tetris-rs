@@ -164,6 +164,9 @@ impl Renderer {
                         };
                         format!("Goal: < {goal} >")
                     }
+                    MenuItem::StartingBlocks => {
+                        format!("Starting Blocks: < {} >", menu.starting_blocks())
+                    }
                     MenuItem::HighScores => "High Scores".to_string(),
                     MenuItem::Options => "Options".to_string(),
                     MenuItem::Help => "Help".to_string(),
