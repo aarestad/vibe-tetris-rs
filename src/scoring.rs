@@ -213,6 +213,26 @@ impl Scoring {
     }
 }
 
+/// Every scoring action with its name and points at level 1, in the order of the Guideline's
+/// scoring table (Guideline 8), for Help to show.
+pub fn scoring_table() -> Vec<(&'static str, u64)> {
+    [
+        ("Single", TSpin::None, 1),
+        ("Double", TSpin::None, 2),
+        ("Triple", TSpin::None, 3),
+        ("Tetris", TSpin::None, 4),
+        ("Mini T-Spin", TSpin::Mini, 0),
+        ("Mini T-Spin Single", TSpin::Mini, 1),
+        ("T-Spin", TSpin::Full, 0),
+        ("T-Spin Single", TSpin::Full, 1),
+        ("T-Spin Double", TSpin::Full, 2),
+        ("T-Spin Triple", TSpin::Full, 3),
+    ]
+    .into_iter()
+    .map(|(name, tspin, lines)| (name, action_points(tspin, lines)))
+    .collect()
+}
+
 /// Action total at level 1 from the scoring table (Guideline 8).
 fn action_points(tspin: TSpin, lines: u32) -> u64 {
     match (tspin, lines) {
@@ -289,6 +309,23 @@ mod tests {
             let mut scoring = scoring();
             scoring.award_action(tspin, lines);
             assert_eq!(scoring.score, points, "{tspin:?} {lines}");
+        }
+    }
+
+    #[test]
+    fn test_scoring_table_lists_every_action_once_with_points() {
+        let table = scoring_table();
+        assert_eq!(table.len(), 10);
+        assert!(table.iter().all(|&(_, points)| points > 0));
+        assert_eq!(table[3], ("Tetris", 800));
+        assert_eq!(table[9], ("T-Spin Triple", 1600));
+        // Every announced action appears under the name it is announced by.
+        for tspin in [TSpin::None, TSpin::Mini, TSpin::Full] {
+            for lines in 0..=4 {
+                if let Some(name) = action_name(tspin, lines) {
+                    assert!(table.iter().any(|&(n, _)| n == name), "{name}");
+                }
+            }
         }
     }
 

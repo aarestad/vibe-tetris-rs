@@ -46,6 +46,9 @@ During play, the mode's name is shown at the top of the score panel.
 
 In the menu, use the arrow keys, Enter or Space to choose, Esc to go back, and Q or Ctrl+C to quit.
 
+Help has three pages: the controls, how to play, and the scoring table. Left and Right turn the
+pages, both from the menu and during a game, where play stops until H closes Help.
+
 Numpad keys are read as digits, so the number row does the same thing.
 
 Auto-Repeat and 20x Soft Drop need a terminal that reports key releases, such as kitty, WezTerm,

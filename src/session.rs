@@ -164,6 +164,7 @@ impl Session {
 mod tests {
     use super::*;
     use crate::game_state::{GameOutcome, Phase};
+    use crate::screen::HelpPage;
     use crate::tetrimino::{Facing, Tetrimino, TetriminoType};
     use InputAction::*;
 
@@ -342,7 +343,7 @@ mod tests {
     fn test_help_leaves_the_music_alone() {
         let mut session = session(false);
         assert_eq!(session.handle_input(press(ToggleHelp)), None);
-        assert_eq!(session.screen(), Screen::Help);
+        assert_eq!(session.screen(), Screen::Help(HelpPage::Controls));
         assert_eq!(session.handle_input(press(ToggleHelp)), None);
         assert_eq!(session.screen(), Screen::Playing);
     }
@@ -392,11 +393,24 @@ mod tests {
     }
 
     #[test]
+    fn test_arrows_turn_help_pages_without_moving_the_tetrimino() {
+        let mut session = session(true);
+        let before = piece(&session).x;
+        session.handle_input(press(ToggleHelp));
+        session.handle_input(press(MoveRight));
+        session.handle_input(InputEvent::Released(MoveRight));
+        assert_eq!(session.screen(), Screen::Help(HelpPage::HowToPlay));
+        session.handle_input(press(ToggleHelp));
+        session.update(Duration::from_secs(1));
+        assert_eq!(piece(&session).x, before);
+    }
+
+    #[test]
     fn test_pause_key_does_nothing_in_help_and_help_key_nothing_in_pause() {
         let mut session = session(false);
         session.handle_input(press(ToggleHelp));
         assert_eq!(session.handle_input(press(Pause)), None);
-        assert_eq!(session.screen(), Screen::Help);
+        assert_eq!(session.screen(), Screen::Help(HelpPage::Controls));
 
         let mut session = self::session(false);
         session.handle_input(press(Pause));

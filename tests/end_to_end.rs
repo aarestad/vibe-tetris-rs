@@ -575,6 +575,8 @@ fn test_menu_help_opens_and_goes_back() {
     terminal.send(ENTER);
     terminal.wait_for_text("CONTROLS");
     terminal.wait_for_text("Esc to go back");
+    terminal.send(RIGHT);
+    terminal.wait_for_text("HOW TO PLAY");
 
     terminal.send("\x1b");
     terminal.wait_for_text("> Help");
@@ -884,8 +886,13 @@ fn test_help_lists_controls_and_stops_time() {
     assert_eq!(terminal.field("TIME"), time);
     assert_eq!(terminal.score(), 0);
 
+    // The arrows turn the pages instead of moving the Tetrimino.
+    terminal.send(LEFT);
+    terminal.wait_for_text("SCORING");
+    assert!(terminal.shows("T-Spin Triple"));
+
     terminal.send("h");
-    terminal.wait_for("help to close", |t| !t.shows("CONTROLS"));
+    terminal.wait_for("help to close", |t| !t.shows("SCORING"));
 }
 
 #[test]
@@ -903,8 +910,8 @@ fn test_quit_works_from_pause_and_help() {
 
 #[test]
 fn test_small_terminal_shows_a_message_until_resized() {
-    // Big enough for the menu, but not for the playing field.
-    let terminal = Terminal::start_with(SOUND_OFF, KeyReleases::NotSupported, 45, 18);
+    // Wide enough for the menu, but not for the playing field.
+    let terminal = Terminal::start_with(SOUND_OFF, KeyReleases::NotSupported, 45, 24);
     terminal.wait_for_text("Terminal too small");
 
     terminal.resize(WIDTH, HEIGHT);

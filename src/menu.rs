@@ -1,4 +1,5 @@
 use crate::config::{GameConfig, GameMode, LockDownMode};
+use crate::screen::HelpPage;
 
 /// Modes in the order the menu shows them (Guideline 12).
 const MODES: [GameMode; 3] = [GameMode::Marathon, GameMode::Sprint, GameMode::Ultra];
@@ -86,7 +87,8 @@ pub enum MenuPage {
     /// The High Score Table (Guideline 11.2), one variant at a time.
     HighScores,
     Options,
-    Help,
+    /// A page of Help (Guideline 2.6).
+    Help(HelpPage),
 }
 
 /// What should happen after a menu input.
@@ -238,10 +240,13 @@ impl Menu {
                 self.handle_high_scores_input(input);
                 MenuResult::Stay
             }
-            MenuPage::Help => {
-                if matches!(input, MenuInput::Back | MenuInput::Select) {
-                    self.page = MenuPage::Main;
-                }
+            MenuPage::Help(page) => {
+                self.page = match input {
+                    MenuInput::Back | MenuInput::Select => MenuPage::Main,
+                    MenuInput::Left => MenuPage::Help(page.previous()),
+                    MenuInput::Right => MenuPage::Help(page.next()),
+                    _ => self.page,
+                };
                 MenuResult::Stay
             }
         }
@@ -271,7 +276,7 @@ impl Menu {
                 self.page = MenuPage::Options;
                 self.selected_option = 0;
             }
-            MenuItem::Help => self.page = MenuPage::Help,
+            MenuItem::Help => self.page = MenuPage::Help(HelpPage::default()),
             MenuItem::Quit => return MenuResult::Exit,
         }
         MenuResult::Stay
@@ -516,7 +521,7 @@ mod tests {
         for closer in [Back, Select] {
             let mut menu = menu_on(MenuItem::Help);
             assert_eq!(menu.handle_input(Select), MenuResult::Stay);
-            assert_eq!(menu.page(), MenuPage::Help);
+            assert_eq!(menu.page(), MenuPage::Help(HelpPage::Controls));
 
             assert_eq!(menu.handle_input(closer), MenuResult::Stay);
             assert_eq!(menu.page(), MenuPage::Main);
@@ -525,13 +530,18 @@ mod tests {
     }
 
     #[test]
-    fn test_help_ignores_navigation_but_quit_still_exits() {
+    fn test_help_turns_pages_with_left_and_right_and_quit_still_exits() {
         let mut menu = menu_on(MenuItem::Help);
         menu.handle_input(Select);
-        for input in [Up, Down, Left, Right] {
+        for input in [Up, Down] {
             assert_eq!(menu.handle_input(input), MenuResult::Stay);
         }
-        assert_eq!(menu.page(), MenuPage::Help);
+        assert_eq!(menu.page(), MenuPage::Help(HelpPage::Controls));
+        menu.handle_input(Right);
+        assert_eq!(menu.page(), MenuPage::Help(HelpPage::HowToPlay));
+        menu.handle_input(Left);
+        menu.handle_input(Left);
+        assert_eq!(menu.page(), MenuPage::Help(HelpPage::Scoring));
         assert_eq!(menu.selected_item(), MenuItem::Help);
         assert_eq!(menu.handle_input(Quit), MenuResult::Exit);
     }

@@ -4,8 +4,8 @@ use crate::end_reward::EndReward;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use crate::high_scores::{HighScore, HighScores, NAME_MAX_LEN, TABLE_SIZE};
 use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
-use crate::scoring::{SPRINT_LINES, Statistics};
-use crate::screen::Screen;
+use crate::scoring::{SPRINT_LINES, Statistics, scoring_table};
+use crate::screen::{HelpPage, Screen};
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
 use ratatui::{
@@ -30,10 +30,10 @@ const PROGRESS_BAR_WIDTH: usize = 12;
 const BOX_WIDTH: u16 = 30;
 /// Width of the High Score Table, which needs room for its columns.
 const TABLE_BOX_WIDTH: u16 = 40;
-/// Smallest terminal that fits every menu page. The High Score Table is the widest and
-/// tallest.
+/// Smallest terminal that fits every menu page. The High Score Table is the widest, and the
+/// Scoring page of Help the tallest. A game needs as many rows, so this costs nothing.
 const MENU_MIN_WIDTH: u16 = TABLE_BOX_WIDTH;
-const MENU_MIN_HEIGHT: u16 = TABLE_SIZE as u16 + 7;
+const MENU_MIN_HEIGHT: u16 = 24;
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
 /// Seconds from a firework's launch until it fades out.
 const FIREWORK_SECONDS: f64 = 1.6;
@@ -90,9 +90,9 @@ impl Renderer {
         match screen {
             Screen::Playing => Self::draw_game(f, state, false),
             Screen::Paused => Self::draw_pause_screen(f, state),
-            Screen::Help => {
+            Screen::Help(page) => {
                 Self::draw_game(f, state, false);
-                Self::draw_help_overlay(f, state);
+                Self::draw_help_overlay(f, state, page);
             }
         }
     }
@@ -121,9 +121,9 @@ impl Renderer {
                 let lines = Self::options_lines(menu);
                 Self::draw_centered_box(f, " OPTIONS ", lines, Alignment::Left);
             }
-            MenuPage::Help => {
-                let lines = Self::controls_lines("Esc to go back");
-                Self::draw_centered_box(f, " CONTROLS ", lines, Alignment::Left);
+            MenuPage::Help(page) => {
+                let lines = Self::help_lines(page, "Esc to go back");
+                Self::draw_centered_box(f, Self::help_title(page), lines, Alignment::Left);
             }
         }
     }
@@ -627,15 +627,38 @@ impl Renderer {
             .collect()
     }
 
-    fn draw_help_overlay(f: &mut Frame, state: &GameState) {
-        let lines = Self::controls_lines("Press H to close");
-        Self::draw_box(f, state, " CONTROLS ", lines, Alignment::Left);
+    /// Draws a page of Help over play (Guideline 2.6).
+    fn draw_help_overlay(f: &mut Frame, state: &GameState, page: HelpPage) {
+        let lines = Self::help_lines(page, "H to close");
+        Self::draw_box(f, state, Self::help_title(page), lines, Alignment::Left);
     }
 
-    fn controls_lines(close_hint: &'static str) -> Vec<Line<'static>> {
+    fn help_title(page: HelpPage) -> &'static str {
+        match page {
+            HelpPage::Controls => " CONTROLS ",
+            HelpPage::HowToPlay => " HOW TO PLAY ",
+            HelpPage::Scoring => " SCORING ",
+        }
+    }
+
+    /// A page of Help, ending with which page it is and how to leave. Every page fits in the
+    /// smallest terminal the game allows.
+    fn help_lines(page: HelpPage, close_hint: &str) -> Vec<Line<'static>> {
+        let mut lines = match page {
+            HelpPage::Controls => Self::controls_lines(),
+            HelpPage::HowToPlay => Self::how_to_play_lines(),
+            HelpPage::Scoring => Self::scoring_lines(),
+        };
+        let position = format!("← {}/{} →", page.index() + 1, HelpPage::ALL.len());
+        lines.push(Line::from(""));
+        lines.push(Line::from(format!("{position}   {close_hint}")).alignment(Alignment::Center));
+        lines
+    }
+
+    fn controls_lines() -> Vec<Line<'static>> {
         let key_line = |action: &'static str, keys: &'static str| {
             Line::from(vec![
-                Span::styled(action, Style::default().fg(Color::Yellow)),
+                Span::styled(action, Style::default().fg(HIGHLIGHT_COLOR)),
                 Span::styled(keys, Style::default().fg(Color::White)),
             ])
         };
@@ -649,9 +672,63 @@ impl Renderer {
             Line::from(""),
             key_line("Help:   ", "H"),
             key_line("Quit:   ", "Q"),
-            Line::from(""),
-            Line::from(close_hint).alignment(Alignment::Center),
         ]
+    }
+
+    /// The basics of play, in Guideline terms (Guideline 2.6 and the Tetris Glossary).
+    fn how_to_play_lines() -> Vec<Line<'static>> {
+        let text = [
+            "Tetriminos fall into the",
+            "Matrix. Move and rotate them",
+            "to fill rows. Each full row",
+            "vanishes in a Line Clear.",
+            "",
+            "Clear lines to reach the",
+            "Goal and Level Up. Each",
+            "level falls faster.",
+            "",
+            "Hold keeps a Tetrimino for",
+            "later. The Ghost Piece shows",
+            "where it will land. The game",
+            "ends if a new Tetrimino is",
+            "blocked, or one Locks Down",
+            "above the Matrix.",
+            "",
+        ];
+        let variant = |name: &'static str, goal: &'static str| {
+            Line::from(vec![
+                Span::styled(name, Style::default().fg(HIGHLIGHT_COLOR)),
+                Span::raw(goal),
+            ])
+        };
+        let mut lines: Vec<Line> = text.into_iter().map(Line::from).collect();
+        lines.push(variant("Marathon: ", "finish level 15"));
+        lines.push(variant("Sprint: ", "40 lines, fast"));
+        lines.push(variant("Ultra: ", "most points in 3 min"));
+        lines
+    }
+
+    /// The scoring system (Guideline 8), with each action's points taken from the scoring
+    /// code itself.
+    fn scoring_lines() -> Vec<Line<'static>> {
+        let heading = Style::default().fg(HIGHLIGHT_COLOR);
+        let mut lines = vec![Line::styled("Actions (points x Level)", heading)];
+        lines.extend(
+            scoring_table()
+                .into_iter()
+                .map(|(name, points)| Line::from(format!("{name:<20}{points:>8}"))),
+        );
+        lines.extend([
+            Line::from(""),
+            Line::styled("Back-to-Back: +50%", heading),
+            Line::from("for a Tetris or T-Spin Line"),
+            Line::from("Clear after another, with no"),
+            Line::from("other Line Clear between."),
+            Line::from(""),
+            Line::from("Soft Drop: 1 point per row"),
+            Line::from("Hard Drop: 2 points per row"),
+        ]);
+        lines
     }
 
     /// Hides play and shows "PAUSED" (Guideline 13.1.6).
@@ -1030,7 +1107,9 @@ mod tests {
     fn test_overlays_do_not_panic_when_too_small() {
         let state = state();
         draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Paused));
-        draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Help));
+        draw(10, 3, |f| {
+            Renderer::draw_screen(f, &state, Screen::Help(HelpPage::Controls))
+        });
         draw(10, 3, |f| {
             Renderer::draw_game_over_screen(f, &state, GameOverView::default())
         });
@@ -1266,11 +1345,11 @@ mod tests {
     fn test_help_overlay_lists_controls() {
         let state = state();
         let buffer = draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_screen(f, &state, Screen::Help)
+            Renderer::draw_screen(f, &state, Screen::Help(HelpPage::Controls))
         });
         let screen = text(&buffer);
         assert!(screen.contains("CONTROLS"));
-        assert!(screen.contains("Press H to close"));
+        assert!(screen.contains("H to close"));
     }
 
     #[test]
@@ -1712,5 +1791,102 @@ mod tests {
         }));
         assert!(!screen.contains("Tetriminos"), "{screen}");
         assert!(screen.contains("Name: Ann_"), "{screen}");
+    }
+}
+
+#[cfg(test)]
+mod help_tests {
+    use super::*;
+    use crate::config::GameConfig;
+    use crate::menu::MenuInput;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+
+    fn text(buffer: &Buffer) -> String {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn draw(width: u16, height: u16, render: impl FnOnce(&mut Frame)) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(render).unwrap();
+        text(terminal.backend().buffer())
+    }
+
+    /// Text that shows each page is there, from its first line and its last.
+    fn page_marks(page: HelpPage) -> [&'static str; 2] {
+        match page {
+            HelpPage::Controls => ["Move:", "Quit:"],
+            HelpPage::HowToPlay => ["Tetriminos fall into the", "most points in 3 min"],
+            HelpPage::Scoring => ["Actions (points x Level)", "Hard Drop: 2 points per row"],
+        }
+    }
+
+    #[test]
+    fn test_every_help_page_fits_in_game_at_the_smallest_size() {
+        let state = GameState::new(GameConfig {
+            enable_sound: false,
+            ..GameConfig::default()
+        });
+        for (index, page) in HelpPage::ALL.into_iter().enumerate() {
+            let screen = draw(50, 24, |f| {
+                Renderer::draw_screen(f, &state, Screen::Help(page))
+            });
+            assert!(screen.contains(Renderer::help_title(page)), "{screen}");
+            for mark in page_marks(page) {
+                assert!(screen.contains(mark), "{page:?} {mark}:\n{screen}");
+            }
+            let position = format!("← {}/3 →   H to close", index + 1);
+            assert!(screen.contains(&position), "{screen}");
+        }
+    }
+
+    #[test]
+    fn test_every_help_page_fits_on_the_menu_at_its_minimum_size() {
+        let mut menu = Menu::new(&GameConfig::default());
+        menu.handle_input(MenuInput::Up);
+        menu.handle_input(MenuInput::Up);
+        menu.handle_input(MenuInput::Select);
+        for page in HelpPage::ALL {
+            assert_eq!(menu.page(), MenuPage::Help(page));
+            let screen = draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
+                Renderer::draw_menu(f, &menu, &HighScores::default())
+            });
+            for mark in page_marks(page) {
+                assert!(screen.contains(mark), "{page:?} {mark}:\n{screen}");
+            }
+            assert!(screen.contains("Esc to go back"), "{screen}");
+            menu.handle_input(MenuInput::Right);
+        }
+    }
+
+    #[test]
+    fn test_scoring_page_shows_every_action_with_its_points() {
+        let screen = Renderer::scoring_lines()
+            .iter()
+            .map(|line| line.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for (name, points) in scoring_table() {
+            let row = format!("{name:<20}{points:>8}");
+            assert!(screen.contains(&row), "{row}:\n{screen}");
+        }
+        assert!(screen.contains("Back-to-Back: +50%"));
+    }
+
+    #[test]
+    fn test_help_lines_fit_the_box_width() {
+        for page in HelpPage::ALL {
+            for line in Renderer::help_lines(page, "Esc to go back") {
+                let width = line.width();
+                assert!(width <= BOX_WIDTH as usize - 2, "{page:?}: {line}");
+            }
+        }
     }
 }

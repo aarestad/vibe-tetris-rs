@@ -136,7 +136,7 @@ src/
 ├── game_state.rs    # Phases, movement, Lock Down, Hold and T-Spin recognition
 ├── high_scores.rs   # High Score Table per variant, saving and name entry
 ├── scoring.rs       # Score, Back-to-Back, level, Goal and Game Statistics
-├── screen.rs        # Playing, Paused and Help screens and the keys that switch them
+├── screen.rs        # Playing, Paused and Help screens, Help pages and the keys that switch them
 ├── session.rs       # Input and time handling for one game, with no terminal or sound
 ├── sound.rs         # Sound effects as synthesized notes, rendered to samples
 ├── board.rs         # Game board and collision detection
