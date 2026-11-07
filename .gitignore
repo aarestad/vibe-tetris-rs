@@ -17,3 +17,7 @@ target
 
 # Local copy of the confidential Tetris Design Guideline, for reference only
 /reference/
+
+# Settings and high scores the game saves in the directory it runs from
+/tetris_config.json
+/tetris_scores.json
