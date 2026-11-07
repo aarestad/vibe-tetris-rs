@@ -8,8 +8,13 @@ Background music is converted at build time and needs `timidity`; without it, th
 with no music.
 
 The game opens on the Main Menu, where you can start a game, choose the mode, starting level and
-goal system, change options, read the controls or quit. After Game Over, any key returns to the
-menu.
+goal system, change options, see the high scores, read the controls or quit.
+
+At Game Over, the screen shows your result and statistics: Singles, Doubles, Triples, Tetrises,
+T-Spins, Tetriminos placed and lines per minute. A game that makes the top 10 of its mode's High
+Score Table asks for your name, then shows the table; otherwise any key returns to the menu. Scores
+are saved to `tetris_scores.json`. A new record, a completed Marathon or any place in the table
+earns a congratulatory message and fireworks, with more fireworks for better results.
 
 The Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound
 effects. Each change is saved to `tetris_config.json` right away. The mode, starting level and goal

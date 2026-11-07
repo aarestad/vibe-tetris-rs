@@ -1,9 +1,10 @@
 use crate::config::GameMode;
 use crate::config::LockDownMode;
+use crate::end_reward::EndReward;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use crate::high_scores::{HighScore, HighScores, NAME_MAX_LEN, TABLE_SIZE};
 use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
-use crate::scoring::SPRINT_LINES;
+use crate::scoring::{SPRINT_LINES, Statistics};
 use crate::screen::Screen;
 use crate::tetrimino::{Tetrimino, TetriminoType};
 use anyhow::Result;
@@ -34,6 +35,38 @@ const TABLE_BOX_WIDTH: u16 = 40;
 const MENU_MIN_WIDTH: u16 = TABLE_BOX_WIDTH;
 const MENU_MIN_HEIGHT: u16 = TABLE_SIZE as u16 + 7;
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
+/// Seconds from a firework's launch until it fades out.
+const FIREWORK_SECONDS: f64 = 1.6;
+const FIREWORK_COLORS: [Color; 6] = [
+    Color::LightRed,
+    Color::Yellow,
+    Color::LightMagenta,
+    Color::LightCyan,
+    Color::LightGreen,
+    Color::LightBlue,
+];
+/// Directions a firework's sparks fly, as (x, y) with y down.
+const SPARK_DIRECTIONS: [(f64, f64); 8] = [
+    (1.0, 0.0),
+    (0.7, 0.7),
+    (0.0, 1.0),
+    (-0.7, 0.7),
+    (-1.0, 0.0),
+    (-0.7, -0.7),
+    (0.0, -1.0),
+    (0.7, -0.7),
+];
+
+/// What the Game Over screen shows besides the game's result.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GameOverView<'a> {
+    /// A result that made the High Score Table: its place from 0 and the name typed so far.
+    pub new_high_score: Option<(usize, &'a str)>,
+    /// The End Reward the game earned, if any (Guideline 11.1).
+    pub reward: Option<EndReward>,
+    /// Time since Game Over, which moves the fireworks.
+    pub since: Duration,
+}
 
 pub struct Renderer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -628,79 +661,173 @@ impl Renderer {
         Self::draw_box(f, state, " PAUSED ", lines, Alignment::Center);
     }
 
-    /// Draws the Game Over screen. A result that made the High Score Table also asks for a
-    /// name, given here as its place from 0 and the name typed so far.
-    pub fn render_game_over(
-        &mut self,
-        state: &GameState,
-        new_high_score: Option<(usize, &str)>,
-    ) -> Result<()> {
+    /// Draws the Game Over screen, with its statistics, any End Reward and, for a result that
+    /// made the High Score Table, the name entry.
+    pub fn render_game_over(&mut self, state: &GameState, view: GameOverView) -> Result<()> {
         self.terminal
-            .draw(|f| Self::draw_game_over_screen(f, state, new_high_score))?;
+            .draw(|f| Self::draw_game_over_screen(f, state, view))?;
         Ok(())
     }
 
-    fn draw_game_over_screen(
-        f: &mut Frame,
-        state: &GameState,
-        new_high_score: Option<(usize, &str)>,
-    ) {
+    fn draw_game_over_screen(f: &mut Frame, state: &GameState, view: GameOverView) {
         Self::draw_game(f, state, false);
+        let Some(area) = Self::play_area(f.area(), state) else {
+            return;
+        };
         let title = match state.outcome() {
             Some(GameOutcome::MarathonComplete) => " MARATHON COMPLETE ",
             Some(GameOutcome::SprintComplete) => " SPRINT COMPLETE ",
             Some(GameOutcome::UltraComplete) => " TIME UP ",
             _ => " GAME OVER ",
         };
+        let highlight = Style::default()
+            .fg(HIGHLIGHT_COLOR)
+            .add_modifier(Modifier::BOLD);
+
+        let mut lines = Vec::new();
+        if let Some(reward) = view.reward {
+            Self::draw_fireworks(f, reward.fireworks(), view.since);
+            lines.push(Line::styled(reward.message(), highlight));
+            lines.push(Line::from(""));
+        }
+        lines.extend(Self::result_lines(state));
+        let prompt = Self::game_over_prompt(view.new_high_score, highlight);
+        // A small Matrix leaves no room for the statistics, so they go first.
+        let statistics = Self::statistics_lines(state);
+        let full_height = lines.len() + 1 + statistics.len() + prompt.len() + 2;
+        if full_height <= area.height as usize {
+            lines.push(Line::from(""));
+            lines.extend(statistics);
+        }
+        lines.extend(prompt);
+        Self::draw_centered_box(f, title, lines, Alignment::Center);
+    }
+
+    /// The game's result, with the fields that matter to its variant.
+    fn result_lines(state: &GameState) -> Vec<Line<'static>> {
         let scoring = &state.scoring;
-        let mut lines = vec![Line::from(format!("Final Score: {}", scoring.score))];
+        let score = Line::from(format!("Final Score: {}", scoring.score));
         match state.config.game_mode {
-            GameMode::Marathon => {
-                lines.push(Line::from(format!("Level Reached: {}", scoring.level)));
-                lines.push(Line::from(format!(
-                    "Lines Cleared: {}",
-                    scoring.lines_cleared
-                )));
-            }
+            GameMode::Marathon => vec![
+                score,
+                Line::from(format!("Level Reached: {}", scoring.level)),
+                Line::from(format!("Lines Cleared: {}", scoring.lines_cleared)),
+            ],
             GameMode::Sprint => {
                 let time = Self::format_time(state.elapsed, GameMode::Sprint);
-                lines.insert(0, Line::from(format!("Time: {time}")));
                 let lines_cleared = scoring.lines_cleared.min(SPRINT_LINES);
-                lines.push(Line::from(format!(
-                    "Lines Cleared: {lines_cleared}/{SPRINT_LINES}"
-                )));
+                vec![
+                    Line::from(format!("Time: {time}")),
+                    score,
+                    Line::from(format!("Lines Cleared: {lines_cleared}/{SPRINT_LINES}")),
+                ]
             }
-            GameMode::Ultra => {
-                lines.push(Line::from(format!(
-                    "Lines Cleared: {}",
-                    scoring.lines_cleared
-                )));
+            GameMode::Ultra => vec![
+                score,
+                Line::from(format!("Lines Cleared: {}", scoring.lines_cleared)),
+            ],
+        }
+    }
+
+    /// Game Statistics (Guideline A1.2.7), in two columns that fill the box.
+    fn statistics_lines(state: &GameState) -> Vec<Line<'static>> {
+        let stats = &state.scoring.statistics;
+        let lines_per_minute = Statistics::per_minute(state.scoring.lines_cleared, state.elapsed);
+        let row = |left: &str, left_value: String, right: &str, right_value: String| {
+            Line::from(format!(
+                "{left:<8}{left_value:>4}  {right:<10}{right_value:>4}"
+            ))
+        };
+        vec![
+            row(
+                "Singles",
+                stats.singles.to_string(),
+                "Doubles",
+                stats.doubles.to_string(),
+            ),
+            row(
+                "Triples",
+                stats.triples.to_string(),
+                "Tetrises",
+                stats.tetrises.to_string(),
+            ),
+            row(
+                "T-Spins",
+                stats.tspins.to_string(),
+                "Lines/min",
+                format!("{lines_per_minute:.1}"),
+            ),
+            Line::from(format!("Tetriminos: {}", stats.tetriminos)),
+        ]
+    }
+
+    /// The last lines of the Game Over box: the name entry for a new high score, or else how
+    /// to leave.
+    fn game_over_prompt(
+        new_high_score: Option<(usize, &str)>,
+        highlight: Style,
+    ) -> Vec<Line<'static>> {
+        let Some((rank, name)) = new_high_score else {
+            return vec![Line::from(""), Line::from("Press any key")];
+        };
+        // Padded to full length, so the line stays put while typing. The cursor goes once the
+        // name is full.
+        let field = if name.len() < NAME_MAX_LEN {
+            format!("{name}_")
+        } else {
+            name.to_string()
+        };
+        let width = NAME_MAX_LEN + 1;
+        vec![
+            Line::from(""),
+            Line::styled(format!("New High Score: #{}", rank + 1), highlight),
+            Line::from(format!("Name: {field:<width$}")),
+            Line::from("Type a name, then Enter"),
+        ]
+    }
+
+    /// Draws bursting fireworks for an End Reward (Guideline 11.1), anywhere on the screen
+    /// but only on blank cells, so they never hide text or Minos. Each one launches at its own
+    /// time and place, chosen from `since` alone, so a frame can be drawn again exactly.
+    fn draw_fireworks(f: &mut Frame, count: usize, since: Duration) {
+        let area = f.area();
+        let buffer = f.buffer_mut();
+        for index in 0..count {
+            let time = since.as_secs_f64() + index as f64 * FIREWORK_SECONDS / count as f64;
+            let launch = (time / FIREWORK_SECONDS) as u64;
+            let progress = (time % FIREWORK_SECONDS) / FIREWORK_SECONDS;
+            let seed = mix_bits(((index as u64) << 32) | launch);
+
+            let center_x = area.x + 4 + (seed % area.width.saturating_sub(8).max(1) as u64) as u16;
+            let center_y =
+                area.y + 2 + ((seed >> 16) % area.height.saturating_sub(4).max(1) as u64) as u16;
+            let color = FIREWORK_COLORS[((seed >> 32) % FIREWORK_COLORS.len() as u64) as usize];
+            let symbol = match progress {
+                p if p < 0.5 => "*",
+                p if p < 0.8 => "+",
+                _ => ".",
+            };
+
+            // Rows are about twice as tall as columns are wide, so sparks spread twice as far
+            // across.
+            let radius = 3.0 * progress;
+            let sparks = SPARK_DIRECTIONS.iter().map(|&(dx, dy)| {
+                (
+                    center_x as f64 + (dx * radius * 2.0).round(),
+                    center_y as f64 + (dy * radius).round(),
+                )
+            });
+            for (x, y) in sparks {
+                let (x, y) = (x as u16, y as u16);
+                if area.contains((x, y).into())
+                    && let Some(cell) = buffer.cell_mut((x, y))
+                    && cell.symbol() == " "
+                    && cell.bg == Color::Reset
+                {
+                    cell.set_symbol(symbol).set_fg(color);
+                }
             }
         }
-        match new_high_score {
-            Some((rank, name)) => {
-                let style = Style::default()
-                    .fg(HIGHLIGHT_COLOR)
-                    .add_modifier(Modifier::BOLD);
-                lines.push(Line::from(""));
-                lines.push(Line::styled(
-                    format!("New High Score: #{}", rank + 1),
-                    style,
-                ));
-                // Padded to full length, so the line stays put while typing. The cursor goes
-                // once the name is full.
-                let field = if name.len() < NAME_MAX_LEN {
-                    format!("{name}_")
-                } else {
-                    name.to_string()
-                };
-                let width = NAME_MAX_LEN + 1;
-                lines.push(Line::from(format!("Name: {field:<width$}")));
-                lines.push(Line::from("Type a name, then Enter"));
-            }
-            None => lines.push(Line::from("Press any key")),
-        }
-        Self::draw_box(f, state, title, lines, Alignment::Center);
     }
 
     /// Draws a centered box over the playing field. Skipped when the terminal is too small,
@@ -732,7 +859,8 @@ impl Renderer {
         alignment: Alignment,
         width: u16,
     ) {
-        let height = lines.len() as u16 + 2;
+        let width = width.min(f.area().width);
+        let height = (lines.len() as u16 + 2).min(f.area().height);
         let area = Rect {
             x: (f.area().width - width) / 2,
             y: (f.area().height - height) / 2,
@@ -749,6 +877,15 @@ impl Renderer {
         f.render_widget(Clear, area);
         f.render_widget(text, area);
     }
+}
+
+/// Scrambles the bits of a number (SplitMix64), for firework positions that look random but
+/// come out the same every time.
+fn mix_bits(value: u64) -> u64 {
+    let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
 }
 
 #[cfg(test)]
@@ -894,7 +1031,9 @@ mod tests {
         let state = state();
         draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Paused));
         draw(10, 3, |f| Renderer::draw_screen(f, &state, Screen::Help));
-        draw(10, 3, |f| Renderer::draw_game_over_screen(f, &state, None));
+        draw(10, 3, |f| {
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
+        });
     }
 
     #[test]
@@ -1154,7 +1293,7 @@ mod tests {
             piece: None,
         };
         let buffer = draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state, None)
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
         });
         assert!(text(&buffer).contains("MARATHON COMPLETE"));
     }
@@ -1186,7 +1325,7 @@ mod tests {
             piece: None,
         };
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state, None)
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
         }));
         assert!(screen.contains("SPRINT COMPLETE"), "{screen}");
         assert!(screen.contains("Time: 01:01.23"), "{screen}");
@@ -1240,7 +1379,7 @@ mod tests {
             piece: None,
         };
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state, None)
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
         }));
         assert!(screen.contains("TIME UP"), "{screen}");
         assert!(screen.contains("Final Score: 12345"), "{screen}");
@@ -1441,7 +1580,7 @@ mod tests {
             piece: None,
         };
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state, Some((2, "Ann")))
+            Renderer::draw_game_over_screen(f, &state, name_entry(2, "Ann"))
         }));
         assert!(screen.contains("Final Score: 4200"), "{screen}");
         assert!(screen.contains("New High Score: #3"), "{screen}");
@@ -1450,7 +1589,7 @@ mod tests {
         assert!(!screen.contains("Press any key"), "{screen}");
 
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
-            Renderer::draw_game_over_screen(f, &state, None)
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
         }));
         assert!(screen.contains("Press any key"), "{screen}");
         assert!(!screen.contains("New High Score"), "{screen}");
@@ -1463,11 +1602,115 @@ mod tests {
             outcome: GameOutcome::SprintComplete,
             piece: None,
         };
+        // The tallest box: a Sprint's result, a reward, statistics and name entry.
+        let view = GameOverView {
+            reward: Some(EndReward::Record),
+            ..name_entry(9, "WWWWWWWWWW")
+        };
         let screen = text(&draw(50, 24, |f| {
-            Renderer::draw_game_over_screen(f, &state, Some((9, "WWWWWWWWWW")))
+            Renderer::draw_game_over_screen(f, &state, view)
         }));
+        assert!(screen.contains("A new record! Bravo!"), "{screen}");
+        assert!(screen.contains("Time:"), "{screen}");
+        assert!(screen.contains("Tetriminos: 0"), "{screen}");
         assert!(screen.contains("New High Score: #10"), "{screen}");
         assert!(screen.contains("Name: WWWWWWWWWW"), "{screen}");
         assert!(screen.contains("Type a name, then Enter"), "{screen}");
+    }
+
+    fn name_entry(rank: usize, name: &str) -> GameOverView<'_> {
+        GameOverView {
+            new_high_score: Some((rank, name)),
+            ..GameOverView::default()
+        }
+    }
+
+    #[test]
+    fn test_game_over_shows_statistics() {
+        let mut state = state();
+        state.scoring.lines_cleared = 30;
+        state.elapsed = Duration::from_secs(120);
+        state.scoring.statistics = Statistics {
+            tetriminos: 87,
+            singles: 3,
+            doubles: 4,
+            triples: 2,
+            tetrises: 3,
+            tspins: 1,
+        };
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::BlockOut,
+            piece: None,
+        };
+        let screen = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
+        }));
+        assert!(screen.contains("Singles    3  Doubles      4"), "{screen}");
+        assert!(screen.contains("Triples    2  Tetrises     3"), "{screen}");
+        assert!(screen.contains("T-Spins    1  Lines/min 15.0"), "{screen}");
+        assert!(screen.contains("Tetriminos: 87"), "{screen}");
+    }
+
+    #[test]
+    fn test_end_reward_shows_its_message_and_fireworks() {
+        let mut state = state();
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::MarathonComplete,
+            piece: None,
+        };
+        let plain = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state, GameOverView::default())
+        }));
+        let view = GameOverView {
+            reward: Some(EndReward::MarathonComplete),
+            since: Duration::from_millis(500),
+            ..GameOverView::default()
+        };
+        let rewarded = text(&draw(WIDTH, HEIGHT, |f| {
+            Renderer::draw_game_over_screen(f, &state, view)
+        }));
+        assert!(rewarded.contains("You conquered level 15!"), "{rewarded}");
+        let sparks = |screen: &str| screen.matches(['*', '+']).count();
+        assert!(sparks(&rewarded) > sparks(&plain), "{rewarded}");
+    }
+
+    #[test]
+    fn test_fireworks_move_over_time() {
+        let draw_at = |millis| {
+            let mut buffer = Buffer::empty(Rect::new(0, 0, WIDTH, HEIGHT));
+            let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
+            terminal
+                .draw(|f| {
+                    Renderer::draw_fireworks(f, 3, Duration::from_millis(millis));
+                    buffer = f.buffer_mut().clone();
+                })
+                .unwrap();
+            text(&buffer)
+        };
+        assert_eq!(draw_at(300), draw_at(300));
+        assert_ne!(draw_at(300), draw_at(900));
+    }
+
+    #[test]
+    fn test_game_over_box_drops_statistics_on_a_small_matrix() {
+        let mut state = GameState::new(GameConfig {
+            board_height: 8,
+            enable_sound: false,
+            ..GameConfig::default()
+        });
+        state.phase = Phase::GameOver {
+            outcome: GameOutcome::BlockOut,
+            piece: None,
+        };
+        let view = GameOverView {
+            reward: Some(EndReward::Record),
+            ..name_entry(0, "Ann")
+        };
+        let (width, height) = Renderer::required_size(&state);
+        let screen = text(&draw(width, height, |f| {
+            Renderer::draw_game_over_screen(f, &state, view)
+        }));
+        assert!(!screen.contains("Tetriminos"), "{screen}");
+        assert!(screen.contains("Name: Ann_"), "{screen}");
     }
 }

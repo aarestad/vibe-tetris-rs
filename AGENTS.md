@@ -131,9 +131,11 @@ src/
 ├── main.rs          # Entry point and application setup
 ├── lib.rs           # Module declarations
 ├── audio.rs         # Audio handling
+├── end_reward.rs    # End Rewards: which games earn a message and fireworks
 ├── game.rs          # Connects a session to the real terminal and sound device
 ├── game_state.rs    # Phases, movement, Lock Down, Hold and T-Spin recognition
-├── scoring.rs       # Score, Back-to-Back, level and Goal
+├── high_scores.rs   # High Score Table per variant, saving and name entry
+├── scoring.rs       # Score, Back-to-Back, level, Goal and Game Statistics
 ├── screen.rs        # Playing, Paused and Help screens and the keys that switch them
 ├── session.rs       # Input and time handling for one game, with no terminal or sound
 ├── sound.rs         # Sound effects as synthesized notes, rendered to samples

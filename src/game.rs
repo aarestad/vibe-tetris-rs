@@ -1,11 +1,12 @@
 use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
+use crate::end_reward::EndReward;
 use crate::game_state::GameState;
 use crate::high_scores::{HighScore, HighScores, NameEntry, NameEntryResult, TextInput};
 use crate::input::InputHandler;
 use crate::menu::{Menu, MenuResult};
 use crate::session::{MusicChange, Session};
-use crate::ui::Renderer;
+use crate::ui::{GameOverView, Renderer};
 use anyhow::Result;
 use crossterm::{
     event::{KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags},
@@ -158,20 +159,21 @@ impl Game {
         }
     }
 
-    /// Shows the Game Over screen. A result that makes the High Score Table asks for a name,
-    /// is saved, and opens the table for the menu to show. Returns true if the player wants to
-    /// leave the program.
+    /// Shows the Game Over screen, with any End Reward. A result that makes the High Score
+    /// Table asks for a name, is saved, and opens the table for the menu to show. Returns true
+    /// if the player wants to leave the program.
     fn finish_game(&mut self, state: &GameState) -> Result<bool> {
         let mode = state.config.game_mode;
         let new_high_score = HighScore::from_game(state)
             .and_then(|score| Some((self.scores.rank_of(mode, &score)?, score)));
-        let Some((rank, mut score)) = new_high_score else {
-            self.renderer.render_game_over(state, None)?;
-            stdout().flush()?;
-            return self.input.wait_for_key_press(GAME_OVER_KEY_GUARD);
-        };
+        let rank = new_high_score.as_ref().map(|(rank, _)| *rank);
+        let table_was_empty = self.scores.table(mode).is_empty();
+        let reward = EndReward::for_game(state, rank, table_was_empty);
 
-        let Some(name) = self.enter_name(state, rank)? else {
+        let Some((rank, mut score)) = new_high_score else {
+            return self.wait_on_game_over(state, reward);
+        };
+        let Some(name) = self.enter_name(state, rank, reward)? else {
             return Ok(true);
         };
         score.name = name;
@@ -181,9 +183,38 @@ impl Game {
         Ok(false)
     }
 
+    /// Shows the Game Over screen until a key is pressed. Keys pressed in the first moments
+    /// are ignored, so a key held during play does not dismiss it at once. Returns true for
+    /// Ctrl+C, which means the player wants to leave.
+    fn wait_on_game_over(&mut self, state: &GameState, reward: Option<EndReward>) -> Result<bool> {
+        let start = Instant::now();
+        loop {
+            while let Some(quit) = self.input.poll_key_press() {
+                if quit {
+                    return Ok(true);
+                }
+                if start.elapsed() >= GAME_OVER_KEY_GUARD {
+                    return Ok(false);
+                }
+            }
+            let view = GameOverView {
+                new_high_score: None,
+                reward,
+                since: start.elapsed(),
+            };
+            self.renderer.render_game_over(state, view)?;
+            std::thread::sleep(FRAME_DURATION);
+        }
+    }
+
     /// Asks for a name for a new high score. Returns None if the player pressed Ctrl+C, which
     /// leaves without saving.
-    fn enter_name(&mut self, state: &GameState, rank: usize) -> Result<Option<String>> {
+    fn enter_name(
+        &mut self,
+        state: &GameState,
+        rank: usize,
+        reward: Option<EndReward>,
+    ) -> Result<Option<String>> {
         let mut entry = NameEntry::new(self.scores.last_name());
         let start = Instant::now();
         loop {
@@ -198,8 +229,12 @@ impl Game {
                     NameEntryResult::Quit => return Ok(None),
                 }
             }
-            self.renderer
-                .render_game_over(state, Some((rank, entry.name())))?;
+            let view = GameOverView {
+                new_high_score: Some((rank, entry.name())),
+                reward,
+                since: start.elapsed(),
+            };
+            self.renderer.render_game_over(state, view)?;
             std::thread::sleep(FRAME_DURATION);
         }
     }

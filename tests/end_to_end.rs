@@ -798,6 +798,8 @@ fn test_a_new_high_score_is_named_saved_and_shown_from_the_menu() {
     terminal.wait_for_piece();
     terminal.stack_to_game_over();
     terminal.wait_for_text("New High Score: #1");
+    // A first entry in an empty table is a High Score reward, not a record.
+    assert!(terminal.shows("Well played!"));
 
     // Keys held from play are ignored, then the name is typed, corrected and confirmed.
     sleep_ms(600);
@@ -841,6 +843,7 @@ fn test_quitting_a_game_does_not_ask_for_a_name() {
     terminal.send("q");
     terminal.wait_for_text("Press any key");
     assert!(!terminal.shows("New High Score"));
+    assert!(terminal.shows("Tetriminos: 1"));
     assert_eq!(terminal.exit_with_any_key(), 0);
     assert_eq!(terminal.scores_file(), "");
 }

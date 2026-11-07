@@ -1,8 +1,7 @@
 use crate::high_scores::TextInput;
 use crate::menu::MenuInput;
-use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum InputAction {
@@ -82,23 +81,19 @@ impl InputHandler {
         None
     }
 
-    /// Blocks until a key is pressed, ignoring keys pressed during the first `ignore_for`.
-    /// The ignored period stops a key held during play from dismissing a screen at once.
-    /// Returns true for Ctrl+C, which counts at once and means the player wants to leave.
-    pub fn wait_for_key_press(&self, ignore_for: Duration) -> Result<bool> {
-        let start = Instant::now();
-        loop {
-            if let Event::Key(key) = event::read()?
-                && key.kind == KeyEventKind::Press
-            {
-                if is_ctrl_c(key) {
-                    return Ok(true);
+    /// Returns the next key press, skipping other events. Does not block. The result is true
+    /// for Ctrl+C, which means the player wants to leave.
+    pub fn poll_key_press(&self) -> Option<bool> {
+        while let Ok(true) = event::poll(Duration::ZERO) {
+            match event::read() {
+                Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+                    return Some(is_ctrl_c(key));
                 }
-                if start.elapsed() >= ignore_for {
-                    return Ok(false);
-                }
+                Ok(_) => {}
+                Err(_) => return None,
             }
         }
+        None
     }
 
     fn key_to_event(&self, key: KeyEvent) -> Option<InputEvent> {

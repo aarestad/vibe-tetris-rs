@@ -529,6 +529,7 @@ impl GameState {
         };
         let tspin = self.detect_tspin(&piece);
         self.board.lock_tetrimino(&piece);
+        self.scoring.statistics.tetriminos += 1;
         self.hold_used = false;
 
         // A whole Tetrimino above the Skyline is a Lock Out (Guideline 10).
@@ -1100,6 +1101,16 @@ mod tests {
         assert_eq!(state.scoring.score, 20);
         assert!(state.current_piece().is_none());
         assert_eq!(state.board.get_cell(4, 19), Some(TetriminoType::O));
+    }
+
+    #[test]
+    fn test_each_lock_down_counts_a_tetrimino() {
+        let mut state = new_state();
+        for _ in 0..2 {
+            state.phase = Phase::Falling(piece(TetriminoType::O, 4, 8, Facing::North));
+            state.hard_drop();
+        }
+        assert_eq!(state.scoring.statistics.tetriminos, 2);
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use crate::config::{GameConfig, GameMode};
+use std::time::Duration;
 
 /// Marathon ends after this level (Guideline 12.1).
 const MAX_LEVEL: u32 = 15;
@@ -27,11 +28,51 @@ pub struct ActionResult {
     pub level_up: bool,
 }
 
+/// Counts of what the player did in one game (Guideline A1.2.7, Game Statistics).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Statistics {
+    /// Tetriminos Locked Down, including one that Locks Out.
+    pub tetriminos: u32,
+    /// Line Clears of each size, with or without a T-Spin.
+    pub singles: u32,
+    pub doubles: u32,
+    pub triples: u32,
+    pub tetrises: u32,
+    /// T-Spins of every kind, including Minis and T-Spins that clear no lines.
+    pub tspins: u32,
+}
+
+impl Statistics {
+    /// Average of `count` per minute over `elapsed`, or 0 before any time has passed.
+    pub fn per_minute(count: u32, elapsed: Duration) -> f64 {
+        let minutes = elapsed.as_secs_f64() / 60.0;
+        if minutes > 0.0 {
+            count as f64 / minutes
+        } else {
+            0.0
+        }
+    }
+
+    fn record_action(&mut self, tspin: TSpin, lines: u32) {
+        match lines {
+            1 => self.singles += 1,
+            2 => self.doubles += 1,
+            3 => self.triples += 1,
+            4 => self.tetrises += 1,
+            _ => {}
+        }
+        if tspin != TSpin::None {
+            self.tspins += 1;
+        }
+    }
+}
+
 /// Score, level and Goal for one game (Guideline 6 and 8).
 pub struct Scoring {
     pub score: u64,
     pub level: u32,
     pub lines_cleared: u32,
+    pub statistics: Statistics,
     /// Lines (or awarded Line Clears) left to reach the Goal.
     pub lines_until_next_level: u32,
     starting_level: u32,
@@ -47,6 +88,7 @@ impl Scoring {
             score: 0,
             level: config.starting_level,
             lines_cleared: 0,
+            statistics: Statistics::default(),
             lines_until_next_level: 0,
             starting_level: config.starting_level,
             lines_per_level: config.lines_per_level,
@@ -77,6 +119,7 @@ impl Scoring {
             TSpin::Mini if lines >= 2 => TSpin::Full,
             other => other,
         };
+        self.statistics.record_action(tspin, lines);
 
         let action_total = action_points(tspin, lines);
         if action_total == 0 {
@@ -283,6 +326,41 @@ mod tests {
         scoring.award_action(TSpin::None, 0);
         scoring.award_action(TSpin::None, 3);
         assert_eq!(scoring.lines_cleared, 5);
+    }
+
+    #[test]
+    fn test_statistics_count_line_clears_and_tspins() {
+        let mut scoring = scoring_with(GameConfig {
+            lines_per_level: 1000,
+            ..GameConfig::default()
+        });
+        for (tspin, lines) in [
+            (TSpin::None, 1),
+            (TSpin::None, 2),
+            (TSpin::None, 3),
+            (TSpin::None, 4),
+            (TSpin::None, 4),
+            (TSpin::None, 0),
+            (TSpin::Mini, 0),
+            (TSpin::Full, 2),
+        ] {
+            scoring.award_action(tspin, lines);
+        }
+        let expected = Statistics {
+            tetriminos: 0,
+            singles: 1,
+            doubles: 2,
+            triples: 1,
+            tetrises: 2,
+            tspins: 2,
+        };
+        assert_eq!(scoring.statistics, expected);
+    }
+
+    #[test]
+    fn test_per_minute_averages_over_elapsed_time() {
+        assert_eq!(Statistics::per_minute(30, Duration::from_secs(90)), 20.0);
+        assert_eq!(Statistics::per_minute(5, Duration::ZERO), 0.0);
     }
 
     #[test]
