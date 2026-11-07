@@ -23,6 +23,8 @@ There are three modes:
 - **Ultra**: score as many points as you can in three minutes. The level stays at the one you
   start on, the clock counts down, and the goal system does not apply.
 
+During play, the mode's name is shown at the top of the score panel.
+
 ## Controls
 
 | Action | Keys |

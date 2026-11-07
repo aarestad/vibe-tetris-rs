@@ -329,9 +329,18 @@ impl Renderer {
             )));
         }
 
+        // The mode goes in the border, so it costs none of the panel's rows.
+        let mode = Self::mode_name(state.config.game_mode).to_uppercase();
+        let title = Line::from(Span::styled(
+            format!(" {mode} "),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .centered();
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: true })
-            .block(Self::panel());
+            .block(Self::panel().title(title));
         f.render_widget(paragraph, area);
     }
 
@@ -1066,6 +1075,23 @@ mod tests {
             enable_sound: false,
             ..GameConfig::default()
         })
+    }
+
+    #[test]
+    fn test_info_panel_shows_the_game_mode() {
+        for (mode, name) in [
+            (GameMode::Marathon, "MARATHON"),
+            (GameMode::Sprint, "SPRINT"),
+            (GameMode::Ultra, "ULTRA"),
+        ] {
+            let state = GameState::new(GameConfig {
+                game_mode: mode,
+                enable_sound: false,
+                ..GameConfig::default()
+            });
+            let screen = text(&draw_state(&state));
+            assert!(screen.contains(&format!(" {name} ")), "{screen}");
+        }
     }
 
     #[test]
