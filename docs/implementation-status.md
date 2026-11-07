@@ -14,7 +14,7 @@ What remains:
 
 One risk still needs your decision: the Guideline PDF, which is marked CONFIDENTIAL, and its extracted text are removed from `main`. They remain in the public GitHub repo's history.
 
-This report describes `main` with game statistics and End Rewards added on top of commit `426d315`. Locally it passes lint and all 360 tests. CI's latest run, for `e72e022`, passed lint and all 351 tests then on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
+This report describes `main` at commit `0a304e2`, which adds game statistics and End Rewards. It passes lint and all 360 tests locally and in CI on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
 
 ## Current state
 
@@ -44,7 +44,7 @@ The code is a 10,097-line, single-player Rust terminal game on `main`, built on 
 
 - **Tests:** `cargo test` passes all 360 tests: 320 in the library, 35 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
-- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `e72e022`, passed lint and all 351 tests on both. The statistics and End Rewards are not pushed yet.
+- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `0a304e2`, passed lint and all 360 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
 - **Docs:** the README covers the menu, its three modes, the Options page, the Game Over statistics, the High Score Table and End Rewards, running, controls and configuration, including the sound and mode settings, and `AGENTS.md` matches the code.
 
