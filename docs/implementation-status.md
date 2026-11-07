@@ -16,7 +16,7 @@ One risk still needs your decision: the Guideline PDF, which is marked CONFIDENT
 
 This report describes commit `5dce163` on `main`, which adds the Options page. CI runs the lints and all tests on every push, and its run for this commit passed on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
 
-The commit after it adds the game type display, and passes lint and all 323 tests locally. CI has not run on it yet.
+The commit after it adds the game type display, and CI passed lint and all 323 tests on Linux and macOS for the push that included it.
 
 ## Current state
 
