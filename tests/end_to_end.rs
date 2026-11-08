@@ -634,6 +634,23 @@ fn test_scoring_demo_plays_each_action_and_goes_back() {
 }
 
 #[test]
+fn test_ctrl_c_during_the_scoring_demo_exits_the_program() {
+    let mut terminal = Terminal::start_at_menu();
+    terminal.send(UP);
+    terminal.send(UP);
+    terminal.wait_for_text("> Scoring Demo");
+    terminal.send(ENTER);
+    terminal.wait_for_text("1 of 13");
+
+    terminal.send(CTRL_C);
+    assert_eq!(terminal.wait_for_exit(), 0);
+    assert!(
+        terminal.raw_output_contains("\x1b[?1049l"),
+        "alternate screen not left"
+    );
+}
+
+#[test]
 fn test_menu_help_opens_and_goes_back() {
     let terminal = Terminal::start_at_menu();
     for _ in 0..3 {
@@ -1005,6 +1022,23 @@ fn test_a_new_high_score_is_named_saved_and_shown_from_the_menu() {
     terminal.wait_for_text("> High Scores");
     terminal.send("q");
     assert_eq!(terminal.wait_for_exit(), 0);
+}
+
+#[test]
+fn test_ctrl_c_during_name_entry_exits_without_saving_the_score() {
+    let mut terminal = Terminal::start(KeyReleases::NotSupported);
+    terminal.wait_for_piece();
+    terminal.stack_to_game_over();
+    terminal.wait_for_text("New High Score: #1");
+
+    // Other keys are ignored for a moment after Game Over, but Ctrl+C is not.
+    terminal.send(CTRL_C);
+    assert_eq!(terminal.wait_for_exit(), 0);
+    assert_eq!(terminal.scores_file(), "");
+    assert!(
+        terminal.raw_output_contains("\x1b[?1049l"),
+        "alternate screen not left"
+    );
 }
 
 #[test]

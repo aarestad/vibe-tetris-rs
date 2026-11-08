@@ -18,13 +18,13 @@ This report describes `main` at commit `2d1acf4`, which adds the test coverage r
 
 ## Current state
 
-The code is a 14,218-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
+The code is a 14,252-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
 
 | Module | Lines (with tests) | Tests | Responsibility |
 | --- | --- | --- | --- |
 | `src/game_state.rs` | 2,052 | 90 | Phases, generation, gravity, Lock Down, Hold, T-Spin recognition, seedable bag, Starting Blocks, sound and visual effect events |
 | `src/ui.rs` | 2,636 | 61 | ratatui rendering: menu, Options, Controls and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash, Hard Drop trail and level-colored walls, the scoring demonstration, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
-| `tests/end_to_end.rs` | 1,160 | 41 | Runs the real binary in a pseudo-terminal and reads its screen |
+| `tests/end_to_end.rs` | 1,194 | 43 | Runs the real binary in a pseudo-terminal and reads its screen |
 | `src/menu.rs` | 1,266 | 41 | Main Menu choices, the Options page, the Controls page with its key capture, and the High Scores page, with no terminal |
 | `src/scoring.rs` | 660 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
 | `src/session.rs` | 677 | 31 | Input and time handling for one game, with no terminal or sound, including the repeat guard |
@@ -45,7 +45,7 @@ The code is a 14,218-line, single-player Rust terminal game on `main`, built on 
 | `src/screen.rs` | 143 | 7 | Playing, Paused and Help screens, the Help pages and the keys that switch them |
 | `build.rs` | 215 | 0 | Writes the Minuet and Ode to Joy as MIDI from note lists, and converts them and the Korobeiniki MIDI to WAV with `timidity` |
 
-- **Tests:** `cargo test` passes all 446 tests: 400 in the library, 41 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 8 seconds, run only on Unix, and always turn sound off. They cover 98.79% of lines; see Test coverage below.
+- **Tests:** `cargo test` passes all 448 tests: 400 in the library, 43 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 8 seconds, run only on Unix, and always turn sound off. They cover 98.84% of lines; see Test coverage below.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
 - **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `2d1acf4`, passed lint and all 446 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
@@ -134,12 +134,12 @@ All 28 facing pages for the Super Rotation System have now been read against the
 
 ### Test coverage
 
-I measured coverage with `cargo-llvm-cov` 0.6.23 on macOS, running all 446 tests with `REQUIRE_EMBEDDED_THEME=1 cargo llvm-cov`. It includes the game binary that the end-to-end tests run.
+I measured coverage with `cargo-llvm-cov` 0.6.23 on macOS, running all 448 tests with `REQUIRE_EMBEDDED_THEME=1 cargo llvm-cov`. It includes the game binary that the end-to-end tests run.
 
 | Measure | Covered | Total | Coverage |
 | --- | --- | --- | --- |
-| Lines | 8,399 | 8,502 | 98.79% |
-| Regions | 14,694 | 14,884 | 98.72% |
+| Lines | 8,403 | 8,502 | 98.84% |
+| Regions | 14,698 | 14,884 | 98.75% |
 | Functions | 980 | 990 | 98.99% |
 
 The figures include the test modules inside each source file, which run in full, so the game code alone is slightly lower. Branch coverage needs a nightly compiler and was not measured. `llvm-cov` warns that 1 function has mismatched data between test binaries, which does not affect these totals.
@@ -150,7 +150,7 @@ Every line of `board.rs`, `scoring.rs`, `screen.rs`, `sound.rs`, `tetrimino.rs` 
 | --- | --- | --- | --- | --- |
 | `src/main.rs` | 17 | 3 | 82.35% | Printing warnings at exit, and a terminal that fails to start |
 | `src/audio.rs` | 228 | 23 | 89.91% | Opening a real sound device, and its failures. The end-to-end tests turn sound off, and the device test skips itself without a device |
-| `src/game.rs` | 271 | 19 | 92.99% | Failed saves of options, controls and high scores; Ctrl+C during the scoring demonstration and name entry; music when no track is embedded; and terminal errors while switching keyboard modes |
+| `src/game.rs` | 271 | 15 | 94.46% | Failed saves of options, controls and high scores, music when no track is embedded, and terminal errors while switching keyboard modes |
 | `src/controls.rs` | 323 | 13 | 95.98% | Some arms of the per-action matches for config error names and for changing keys, and the Enter and Tab labels |
 | `src/end_reward.rs` | 53 | 2 | 96.23% | A test's failure message |
 | `src/input.rs` | 548 | 12 | 97.81% | Terminal read errors, and events other than keys, such as resizes, while polling |
@@ -162,7 +162,7 @@ Every line of `board.rs`, `scoring.rs`, `screen.rs`, `sound.rs`, `tetrimino.rs` 
 | `src/session.rs` | 479 | 1 | 99.79% | Pause, Help and Quit releases, which do nothing |
 | `src/game_state.rs` | 1,489 | 2 | 99.87% | Ultra completing on a Line Clear, which cannot happen since Ultra ends on time, and an empty Game Over arm |
 
-The gaps are mostly error handling that needs a failing disk, terminal or sound device, and match arms that only change a label. None is game logic. The one worth acting on is Ctrl+C during name entry and the scoring demonstration, which could each get an end-to-end test. An unused `held_piece()` accessor that this report found has been removed.
+The gaps are mostly error handling that needs a failing disk, terminal or sound device, and match arms that only change a label. None is game logic. Two gaps this report found are closed: an unused `held_piece()` accessor is removed, and end-to-end tests now check that Ctrl+C during name entry and during the scoring demonstration exits the program, without saving the score from name entry.
 
 Before this report, each end-to-end test killed the game when it finished. A killed process never writes its coverage data, so only tests that quit cleanly counted, and `game.rs` showed 73% and the total 97.77%. The tests now quit with Ctrl+C first and kill the game only if it has not exited within 2 seconds, which adds about a second to the end-to-end run.
 
