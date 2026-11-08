@@ -114,6 +114,19 @@ impl From<Key> for String {
     }
 }
 
+/// What happened when a key was bound on the Controls page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rebind {
+    /// The key was free and is now bound.
+    Added,
+    /// The key was taken from this action.
+    Moved(InputAction),
+    /// The key was already bound to the action.
+    AlreadyBound,
+    /// The key is this action's only key besides Shift and Ctrl, so it stays there.
+    Refused(InputAction),
+}
+
 /// The keys for each play action (Guideline 4). The defaults are the Guideline's keyboard
 /// controls (Guideline 4.1). Any action left out of the config file keeps its default keys.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,12 +208,59 @@ impl Controls {
         self.action_for(Key::Ctrl).is_some()
     }
 
+    /// Binds a key to an action, taking it from any other action, unless that would leave the
+    /// other action with no key every terminal reports. New keys go after the existing ones.
+    pub fn add_key(&mut self, action: InputAction, key: Key) -> Rebind {
+        let owner = self.action_for(key);
+        if owner == Some(action) {
+            return Rebind::AlreadyBound;
+        }
+        if let Some(owner) = owner {
+            let keys = self.keys_mut(owner);
+            let remaining: Vec<Key> = keys.iter().copied().filter(|k| *k != key).collect();
+            if !has_usable_key(&remaining) {
+                return Rebind::Refused(owner);
+            }
+            *keys = remaining;
+        }
+        self.keys_mut(action).push(key);
+        owner.map_or(Rebind::Added, Rebind::Moved)
+    }
+
+    /// Unbinds an action's last key and returns it, unless that would leave the action with
+    /// no key every terminal reports.
+    pub fn remove_last_key(&mut self, action: InputAction) -> Option<Key> {
+        let keys = self.keys_mut(action);
+        let (last, rest) = keys.split_last()?;
+        if !has_usable_key(rest) {
+            return None;
+        }
+        let last = *last;
+        keys.pop();
+        Some(last)
+    }
+
+    fn keys_mut(&mut self, action: InputAction) -> &mut Vec<Key> {
+        match action {
+            InputAction::MoveLeft => &mut self.move_left,
+            InputAction::MoveRight => &mut self.move_right,
+            InputAction::MoveDown => &mut self.soft_drop,
+            InputAction::HardDrop => &mut self.hard_drop,
+            InputAction::RotateClockwise => &mut self.rotate_clockwise,
+            InputAction::RotateCounterClockwise => &mut self.rotate_counterclockwise,
+            InputAction::Hold => &mut self.hold,
+            InputAction::Pause => &mut self.pause,
+            InputAction::ToggleHelp => &mut self.help,
+            InputAction::Quit => &mut self.quit,
+        }
+    }
+
     /// Checks that every action has a key that works everywhere and no key does two things.
     pub fn validate(&self) -> Result<()> {
         let bindings = self.bindings();
         for (action, keys) in bindings {
             ensure!(
-                keys.iter().any(|key| !key.is_modifier()),
+                has_usable_key(keys),
                 "controls: {} needs a key other than Shift or Ctrl, which not every \
                  terminal reports",
                 action_name(action)
@@ -222,6 +282,11 @@ impl Controls {
         }
         Ok(())
     }
+}
+
+/// Whether the keys include one that every terminal reports, which Shift and Ctrl are not.
+fn has_usable_key(keys: &[Key]) -> bool {
+    keys.iter().any(|key| !key.is_modifier())
 }
 
 /// The action's field name in the config file.
@@ -364,5 +429,57 @@ mod tests {
         let controls: Controls =
             serde_json::from_str(r#"{"rotate_counterclockwise": ["z"]}"#).unwrap();
         assert!(!controls.binds_ctrl());
+    }
+
+    #[test]
+    fn test_adding_a_free_key_appends_it_and_a_bound_key_moves_it() {
+        let mut controls = Controls::default();
+        assert_eq!(controls.add_key(InputAction::Hold, key("a")), Rebind::Added);
+        assert_eq!(controls.hold, [Key::Shift, key("c"), key("0"), key("a")]);
+
+        assert_eq!(
+            controls.add_key(InputAction::Hold, key("x")),
+            Rebind::Moved(InputAction::RotateClockwise)
+        );
+        assert_eq!(controls.action_for(key("x")), Some(InputAction::Hold));
+        assert_eq!(
+            controls.rotate_clockwise,
+            [Key::Up, key("1"), key("5"), key("9")]
+        );
+        assert_eq!(
+            controls.add_key(InputAction::Hold, key("x")),
+            Rebind::AlreadyBound
+        );
+        assert!(controls.validate().is_ok());
+    }
+
+    #[test]
+    fn test_an_actions_only_usable_key_cannot_be_taken() {
+        let mut controls = Controls::default();
+        assert_eq!(
+            controls.add_key(InputAction::Hold, key("q")),
+            Rebind::Refused(InputAction::Quit)
+        );
+        assert_eq!(controls, Controls::default());
+
+        // Shift alone does not count, since basic terminals never report it.
+        controls.hold = vec![Key::Shift, key("c")];
+        assert_eq!(
+            controls.add_key(InputAction::Pause, key("c")),
+            Rebind::Refused(InputAction::Hold)
+        );
+        assert_eq!(controls.hold, [Key::Shift, key("c")]);
+    }
+
+    #[test]
+    fn test_removing_keys_stops_at_the_last_usable_one() {
+        let mut controls = Controls::default();
+        assert_eq!(controls.remove_last_key(InputAction::Hold), Some(key("0")));
+        // C stays, since Shift alone is not reported by basic terminals.
+        assert_eq!(controls.remove_last_key(InputAction::Hold), None);
+        assert_eq!(controls.hold, [Key::Shift, key("c")]);
+
+        assert_eq!(controls.remove_last_key(InputAction::Quit), None);
+        assert_eq!(controls.quit, [key("q")]);
     }
 }

@@ -1,12 +1,12 @@
 use crate::config::GameMode;
 use crate::config::{LockDownMode, MusicTrack};
-use crate::controls::Controls;
+use crate::controls::{Controls, Key, Rebind};
 use crate::demo::{Demo, SCENES};
 use crate::end_reward::EndReward;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use crate::high_scores::{HighScore, HighScores, NAME_MAX_LEN, TABLE_SIZE};
 use crate::input::InputAction;
-use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
+use crate::menu::{ControlItem, ControlsMessage, Menu, MenuItem, MenuPage, OptionItem};
 use crate::scoring::{SPRINT_LINES, Statistics, scoring_table};
 use crate::screen::{HelpPage, Screen};
 use crate::tetrimino::{Tetrimino, TetriminoType};
@@ -162,6 +162,11 @@ impl Renderer {
                 let lines = Self::options_lines(menu);
                 Self::draw_centered_box(f, " OPTIONS ", lines, Alignment::Left);
             }
+            MenuPage::Controls => {
+                let lines = Self::controls_page_lines(menu);
+                let title = " CONTROLS ";
+                Self::draw_box_of_width(f, title, lines, Alignment::Left, TABLE_BOX_WIDTH);
+            }
             MenuPage::Help(page) => {
                 let lines = Self::help_lines(page, menu.controls(), "Esc to go back");
                 Self::draw_centered_box(f, Self::help_title(page), lines, Alignment::Left);
@@ -250,6 +255,7 @@ impl Renderer {
                             on_off(options.enable_sound_effects)
                         )
                     }
+                    OptionItem::Controls => "Controls".to_string(),
                     OptionItem::Back => "Back".to_string(),
                 };
                 Self::menu_line(text, item == menu.selected_option())
@@ -259,6 +265,95 @@ impl Renderer {
         lines.push(Line::from("↑ ↓ move   ← → change"));
         lines.push(Line::from("Saved as you change them"));
         lines
+    }
+
+    /// The Controls page (Guideline 4): each action's keys, then what the last change did or
+    /// the key being waited for, and how to change them.
+    fn controls_page_lines(menu: &Menu) -> Vec<Line<'static>> {
+        let controls = menu.controls();
+        let mut lines: Vec<Line> = ControlItem::ALL
+            .into_iter()
+            .map(|item| {
+                let text = match item {
+                    ControlItem::Action(action) => {
+                        let name = format!("{}:", Self::action_name(action));
+                        format!("{name:<12}{}", Self::key_labels(controls.keys_for(action)))
+                    }
+                    ControlItem::Reset => "Reset to Defaults".to_string(),
+                    ControlItem::Back => "Back".to_string(),
+                };
+                Self::menu_line(text, item == menu.selected_control())
+            })
+            .collect();
+        lines.push(Line::from(""));
+        let status = match (menu.capturing(), menu.selected_control()) {
+            (true, ControlItem::Action(action)) => [
+                format!("Press a key for {}", Self::action_name(action)),
+                "or Esc to cancel".to_string(),
+            ],
+            _ => menu
+                .controls_message()
+                .map_or_else(Default::default, Self::controls_message_lines),
+        };
+        let style = Style::default().fg(HIGHLIGHT_COLOR);
+        lines.extend(status.map(|text| Line::styled(text, style)));
+        lines.push(Line::from(""));
+        lines.push(Line::from("↑ ↓ move   Enter add a key"));
+        lines.push(Line::from("Backspace remove the last key"));
+        lines
+    }
+
+    fn controls_message_lines(message: ControlsMessage) -> [String; 2] {
+        let name = Self::action_name;
+        match message {
+            ControlsMessage::Bound(key, action, Rebind::Added) => [
+                format!("{} added to {}", key.label(), name(action)),
+                String::new(),
+            ],
+            ControlsMessage::Bound(key, action, Rebind::Moved(from)) => [
+                format!("{} moved to {}", key.label(), name(action)),
+                format!("from {}", name(from)),
+            ],
+            ControlsMessage::Bound(key, action, Rebind::AlreadyBound) => [
+                format!("{} already has {}", name(action), key.label()),
+                String::new(),
+            ],
+            ControlsMessage::Bound(key, _, Rebind::Refused(owner)) => [
+                format!("{} needs {},", name(owner), key.label()),
+                "its last key besides Shift and Ctrl".to_string(),
+            ],
+            ControlsMessage::Removed(key, action) => [
+                format!("{} removed from {}", key.label(), name(action)),
+                String::new(),
+            ],
+            ControlsMessage::LastKey(action) => [
+                format!("{} needs a key", name(action)),
+                "besides Shift and Ctrl".to_string(),
+            ],
+            ControlsMessage::Reset => ["Keys reset to the defaults".to_string(), String::new()],
+        }
+    }
+
+    /// Keys as Help and the Controls page show them.
+    fn key_labels(keys: &[Key]) -> String {
+        let labels: Vec<String> = keys.iter().map(|key| key.label()).collect();
+        labels.join(" ")
+    }
+
+    /// The short name of a play action, as Help and the Controls page show it.
+    fn action_name(action: InputAction) -> &'static str {
+        match action {
+            InputAction::MoveLeft => "Left",
+            InputAction::MoveRight => "Right",
+            InputAction::MoveDown => "Soft Drop",
+            InputAction::HardDrop => "Hard Drop",
+            InputAction::RotateClockwise => "Rotate CW",
+            InputAction::RotateCounterClockwise => "Rotate CCW",
+            InputAction::Hold => "Hold",
+            InputAction::Pause => "Pause",
+            InputAction::ToggleHelp => "Help",
+            InputAction::Quit => "Quit",
+        }
     }
 
     fn track_name(track: MusicTrack) -> &'static str {
@@ -828,22 +923,10 @@ impl Renderer {
             .bindings()
             .into_iter()
             .map(|(action, keys)| {
-                let name = match action {
-                    InputAction::MoveLeft => "Left:",
-                    InputAction::MoveRight => "Right:",
-                    InputAction::MoveDown => "Soft Drop:",
-                    InputAction::HardDrop => "Hard Drop:",
-                    InputAction::RotateClockwise => "Rotate CW:",
-                    InputAction::RotateCounterClockwise => "Rotate CCW:",
-                    InputAction::Hold => "Hold:",
-                    InputAction::Pause => "Pause:",
-                    InputAction::ToggleHelp => "Help:",
-                    InputAction::Quit => "Quit:",
-                };
-                let keys: Vec<String> = keys.iter().map(|key| key.label()).collect();
+                let name = format!("{}:", Self::action_name(action));
                 Line::from(vec![
                     Span::styled(format!("{name:<12}"), Style::default().fg(HIGHLIGHT_COLOR)),
-                    Span::styled(keys.join(" "), Style::default().fg(Color::White)),
+                    Span::styled(Self::key_labels(keys), Style::default().fg(Color::White)),
                 ])
             })
             .collect()
@@ -1235,7 +1318,7 @@ mod tests {
     use super::*;
     use crate::config::{GameConfig, MAX_VOLUME};
     use crate::game_state::Phase;
-    use crate::menu::MenuInput;
+    use crate::menu::{KeyCapture, MenuInput};
     use crate::tetrimino::Facing;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
@@ -1649,6 +1732,7 @@ mod tests {
             "  Music Volume: < 5 >",
             "  Sound Effects: < On >",
             "  Effects Volume: < 4 >",
+            "  Controls",
             "  Back",
             "Saved as you change them",
         ] {
@@ -1680,6 +1764,105 @@ mod tests {
         assert!(screen.contains("Music Volume: < 10 >"), "{screen}");
         assert!(screen.contains("> Sound Effects: < Off >"), "{screen}");
         assert!(screen.contains("Saved as you change them"), "{screen}");
+    }
+
+    fn controls_page() -> Menu {
+        let mut menu = options_page();
+        while menu.selected_option() != OptionItem::Controls {
+            menu.handle_input(MenuInput::Down);
+        }
+        menu.handle_input(MenuInput::Select);
+        menu
+    }
+
+    fn select_control(menu: &mut Menu, item: ControlItem) {
+        while menu.selected_control() != item {
+            menu.handle_input(MenuInput::Down);
+        }
+    }
+
+    fn draw_menu_min(menu: &Menu) -> String {
+        text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
+            Renderer::draw_menu(f, menu, &HighScores::default())
+        }))
+    }
+
+    #[test]
+    fn test_controls_page_lists_every_action_with_its_keys() {
+        let screen = draw_menu_min(&controls_page());
+        for label in [
+            "CONTROLS",
+            "> Left:       ← 4",
+            "  Rotate CCW: Ctrl Z 3 7",
+            "  Hold:       Shift C 0",
+            "  Pause:      Esc F1 P",
+            "  Quit:       Q",
+            "  Reset to Defaults",
+            "  Back",
+            "Enter add a key",
+            "Backspace remove the last key",
+        ] {
+            assert!(screen.contains(label), "{label}:\n{screen}");
+        }
+    }
+
+    #[test]
+    fn test_controls_page_asks_for_a_key_and_shows_what_it_did() {
+        let mut menu = controls_page();
+        select_control(&mut menu, ControlItem::Action(InputAction::Hold));
+        menu.handle_input(MenuInput::Select);
+        let screen = draw_menu_min(&menu);
+        assert!(screen.contains("Press a key for Hold"), "{screen}");
+        assert!(screen.contains("or Esc to cancel"), "{screen}");
+
+        menu.capture_key(KeyCapture::Key(Key::char('x')));
+        let screen = draw_menu_min(&menu);
+        assert!(screen.contains("> Hold:       Shift C 0 X"), "{screen}");
+        assert!(screen.contains("  Rotate CW:  ↑ 1 5 9"), "{screen}");
+        assert!(screen.contains("X moved to Hold"), "{screen}");
+        assert!(screen.contains("from Rotate CW"), "{screen}");
+        assert!(!screen.contains("Press a key"), "{screen}");
+    }
+
+    #[test]
+    fn test_longest_controls_messages_fit_at_the_minimum_menu_size() {
+        let mut menu = controls_page();
+        let rotate = ControlItem::Action(InputAction::RotateCounterClockwise);
+        select_control(&mut menu, rotate);
+        for key in [Key::Backspace, Key::char('3')] {
+            menu.handle_input(MenuInput::Select);
+            menu.capture_key(KeyCapture::Key(key));
+        }
+        let screen = draw_menu_min(&menu);
+        assert!(
+            screen.contains("> Rotate CCW: Ctrl Z 3 7 Backspace"),
+            "{screen}"
+        );
+        assert!(screen.contains("Rotate CCW already has 3"), "{screen}");
+
+        menu.handle_input(MenuInput::Remove);
+        assert!(draw_menu_min(&menu).contains("Backspace removed from Rotate CCW"));
+        for _ in 0..3 {
+            menu.handle_input(MenuInput::Remove);
+        }
+        let screen = draw_menu_min(&menu);
+        assert!(screen.contains("> Rotate CCW: Ctrl Z"), "{screen}");
+        assert!(screen.contains("Rotate CCW needs a key"), "{screen}");
+        assert!(screen.contains("besides Shift and Ctrl"), "{screen}");
+
+        select_control(&mut menu, ControlItem::Action(InputAction::Hold));
+        menu.handle_input(MenuInput::Select);
+        menu.capture_key(KeyCapture::Key(Key::char('z')));
+        let screen = draw_menu_min(&menu);
+        assert!(screen.contains("Rotate CCW needs Z,"), "{screen}");
+        assert!(
+            screen.contains("its last key besides Shift and Ctrl"),
+            "{screen}"
+        );
+
+        select_control(&mut menu, ControlItem::Reset);
+        menu.handle_input(MenuInput::Select);
+        assert!(draw_menu_min(&menu).contains("Keys reset to the defaults"));
     }
 
     #[test]

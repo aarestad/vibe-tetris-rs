@@ -1,5 +1,6 @@
 use crate::config::{GameConfig, GameMode, LockDownMode, MAX_VOLUME, MusicTrack};
-use crate::controls::Controls;
+use crate::controls::{Controls, Key, Rebind};
+use crate::input::InputAction;
 use crate::screen::HelpPage;
 
 /// Modes in the order the menu shows them (Guideline 12).
@@ -33,6 +34,18 @@ pub enum MenuInput {
     Right,
     Select,
     Back,
+    /// Backspace or Delete, which unbinds a key on the Controls page.
+    Remove,
+    Quit,
+}
+
+/// A key pressed while the Controls page waits for one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyCapture {
+    Key(Key),
+    /// Esc, which stops waiting without binding anything.
+    Cancel,
+    /// Ctrl+C.
     Quit,
 }
 
@@ -82,12 +95,14 @@ pub enum OptionItem {
     MusicVolume,
     SoundEffects,
     SoundEffectsVolume,
+    /// Opens the Controls page, which remaps keys (Guideline 4).
+    Controls,
     Back,
 }
 
 impl OptionItem {
     /// All items in the order shown.
-    pub const ALL: [OptionItem; 10] = [
+    pub const ALL: [OptionItem; 11] = [
         OptionItem::NextQueue,
         OptionItem::Hold,
         OptionItem::GhostPiece,
@@ -97,8 +112,47 @@ impl OptionItem {
         OptionItem::MusicVolume,
         OptionItem::SoundEffects,
         OptionItem::SoundEffectsVolume,
+        OptionItem::Controls,
         OptionItem::Back,
     ];
+}
+
+/// One line of the Controls page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlItem {
+    Action(InputAction),
+    /// Puts every key back to the Guideline's defaults.
+    Reset,
+    Back,
+}
+
+impl ControlItem {
+    /// All items in the order shown, with the actions in the order Help lists them.
+    pub const ALL: [ControlItem; 12] = [
+        ControlItem::Action(InputAction::MoveLeft),
+        ControlItem::Action(InputAction::MoveRight),
+        ControlItem::Action(InputAction::MoveDown),
+        ControlItem::Action(InputAction::HardDrop),
+        ControlItem::Action(InputAction::RotateClockwise),
+        ControlItem::Action(InputAction::RotateCounterClockwise),
+        ControlItem::Action(InputAction::Hold),
+        ControlItem::Action(InputAction::Pause),
+        ControlItem::Action(InputAction::ToggleHelp),
+        ControlItem::Action(InputAction::Quit),
+        ControlItem::Reset,
+        ControlItem::Back,
+    ];
+}
+
+/// What the last change on the Controls page did, for the page to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlsMessage {
+    /// A key was pressed for an action, with what binding it did.
+    Bound(Key, InputAction, Rebind),
+    Removed(Key, InputAction),
+    /// The action's last key every terminal reports cannot be removed.
+    LastKey(InputAction),
+    Reset,
 }
 
 /// The page of the menu on screen.
@@ -108,6 +162,8 @@ pub enum MenuPage {
     /// The High Score Table (Guideline 11.2), one variant at a time.
     HighScores,
     Options,
+    /// Key remapping (Guideline 4), opened from the Options page.
+    Controls,
     /// A page of Help (Guideline 2.6).
     Help(HelpPage),
 }
@@ -121,6 +177,10 @@ pub enum MenuResult {
     StartDemo,
     /// An option changed, so the settings should be saved.
     OptionsChanged,
+    /// The Controls page is waiting for a key, which goes to `Menu::capture_key`.
+    CaptureKey,
+    /// A key binding changed, so the controls should be used and saved.
+    ControlsChanged,
     Exit,
 }
 
@@ -187,8 +247,12 @@ pub struct Menu {
     table_mode: GameMode,
     /// A just-entered result to mark in its variant's table, as its place from 0.
     highlight: Option<(GameMode, usize)>,
-    /// The play keys, for the Help page.
+    /// The play keys, which Help lists and the Controls page changes.
     controls: Controls,
+    selected_control: usize,
+    /// True while the Controls page waits for a key for the selected action.
+    capturing: bool,
+    controls_message: Option<ControlsMessage>,
 }
 
 impl Menu {
@@ -207,6 +271,9 @@ impl Menu {
             controls: config.controls.clone(),
             table_mode: config.game_mode,
             highlight: None,
+            selected_control: 0,
+            capturing: false,
+            controls_message: None,
         }
     }
 
@@ -238,9 +305,22 @@ impl Menu {
         self.starting_blocks
     }
 
-    /// The play keys from the config file, which Help lists.
+    /// The play keys from the config file and the Controls page, which Help lists.
     pub fn controls(&self) -> &Controls {
         &self.controls
+    }
+
+    pub fn selected_control(&self) -> ControlItem {
+        ControlItem::ALL[self.selected_control]
+    }
+
+    /// Whether the Controls page is waiting for a key.
+    pub fn capturing(&self) -> bool {
+        self.capturing
+    }
+
+    pub fn controls_message(&self) -> Option<ControlsMessage> {
+        self.controls_message
     }
 
     pub fn options(&self) -> Options {
@@ -288,6 +368,7 @@ impl Menu {
         match self.page {
             MenuPage::Main => self.handle_main_input(input),
             MenuPage::Options => self.handle_options_input(input),
+            MenuPage::Controls => self.handle_controls_input(input),
             MenuPage::HighScores => {
                 self.handle_high_scores_input(input);
                 MenuResult::Stay
@@ -312,7 +393,7 @@ impl Menu {
             MenuInput::Left => self.change_value(false),
             MenuInput::Right => self.change_value(true),
             MenuInput::Select => return self.select(),
-            MenuInput::Back | MenuInput::Quit => {}
+            MenuInput::Back | MenuInput::Remove | MenuInput::Quit => {}
         }
         MenuResult::Stay
     }
@@ -374,7 +455,7 @@ impl Menu {
                 self.page = MenuPage::Main;
                 self.highlight = None;
             }
-            MenuInput::Up | MenuInput::Down | MenuInput::Quit => {}
+            MenuInput::Up | MenuInput::Down | MenuInput::Remove | MenuInput::Quit => {}
         }
     }
 
@@ -387,11 +468,79 @@ impl Menu {
             MenuInput::Select if self.selected_option() == OptionItem::Back => {
                 self.page = MenuPage::Main;
             }
+            MenuInput::Select if self.selected_option() == OptionItem::Controls => {
+                self.page = MenuPage::Controls;
+                self.selected_control = 0;
+                self.controls_message = None;
+            }
             MenuInput::Left => return self.change_option(false),
             MenuInput::Right | MenuInput::Select => return self.change_option(true),
-            MenuInput::Quit => {}
+            MenuInput::Remove | MenuInput::Quit => {}
         }
         MenuResult::Stay
+    }
+
+    /// Up and down choose an action, Enter waits for a key to add to it, and Backspace removes
+    /// its last key.
+    fn handle_controls_input(&mut self, input: MenuInput) -> MenuResult {
+        let count = ControlItem::ALL.len();
+        match (input, self.selected_control()) {
+            (MenuInput::Up, _) => {
+                self.selected_control = (self.selected_control + count - 1) % count;
+                self.controls_message = None;
+            }
+            (MenuInput::Down, _) => {
+                self.selected_control = (self.selected_control + 1) % count;
+                self.controls_message = None;
+            }
+            (MenuInput::Back, _) | (MenuInput::Select, ControlItem::Back) => {
+                self.page = MenuPage::Options;
+            }
+            (MenuInput::Select, ControlItem::Action(_)) => {
+                self.capturing = true;
+                self.controls_message = None;
+                return MenuResult::CaptureKey;
+            }
+            (MenuInput::Select, ControlItem::Reset) => {
+                self.controls_message = Some(ControlsMessage::Reset);
+                if self.controls != Controls::default() {
+                    self.controls = Controls::default();
+                    return MenuResult::ControlsChanged;
+                }
+            }
+            (MenuInput::Remove, ControlItem::Action(action)) => {
+                let removed = self.controls.remove_last_key(action);
+                self.controls_message = Some(match removed {
+                    Some(key) => ControlsMessage::Removed(key, action),
+                    None => ControlsMessage::LastKey(action),
+                });
+                if removed.is_some() {
+                    return MenuResult::ControlsChanged;
+                }
+            }
+            _ => {}
+        }
+        MenuResult::Stay
+    }
+
+    /// Binds the key pressed while the Controls page waited for one to the selected action.
+    pub fn capture_key(&mut self, capture: KeyCapture) -> MenuResult {
+        self.capturing = false;
+        let ControlItem::Action(action) = self.selected_control() else {
+            return MenuResult::Stay;
+        };
+        match capture {
+            KeyCapture::Quit => MenuResult::Exit,
+            KeyCapture::Cancel => MenuResult::Stay,
+            KeyCapture::Key(key) => {
+                let rebind = self.controls.add_key(action, key);
+                self.controls_message = Some(ControlsMessage::Bound(key, action, rebind));
+                match rebind {
+                    Rebind::Added | Rebind::Moved(_) => MenuResult::ControlsChanged,
+                    Rebind::AlreadyBound | Rebind::Refused(_) => MenuResult::Stay,
+                }
+            }
+        }
     }
 
     /// Changes the selected option, wrapping around at either end.
@@ -420,7 +569,7 @@ impl Menu {
             OptionItem::SoundEffectsVolume => {
                 return change_volume(&mut options.sound_effects_volume, forward);
             }
-            OptionItem::Back => return MenuResult::Stay,
+            OptionItem::Controls | OptionItem::Back => return MenuResult::Stay,
         }
         MenuResult::OptionsChanged
     }
@@ -979,5 +1128,139 @@ mod tests {
         menu.handle_input(Back);
         menu.show_high_scores(GameMode::Ultra, None);
         assert_eq!(menu.highlighted_rank(), None);
+    }
+
+    fn controls_menu_on(item: ControlItem) -> Menu {
+        let mut menu = options_menu_on(OptionItem::Controls);
+        assert_eq!(menu.handle_input(Left), MenuResult::Stay);
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+        assert_eq!(menu.page(), MenuPage::Controls);
+        while menu.selected_control() != item {
+            menu.handle_input(Down);
+        }
+        menu
+    }
+
+    fn char_key(c: char) -> KeyCapture {
+        KeyCapture::Key(Key::char(c))
+    }
+
+    #[test]
+    fn test_controls_page_visits_every_action_and_goes_back_to_options() {
+        let mut menu = controls_menu_on(ControlItem::Action(InputAction::MoveLeft));
+        for item in ControlItem::ALL {
+            assert_eq!(menu.selected_control(), item);
+            menu.handle_input(Down);
+        }
+        menu.handle_input(Up);
+        assert_eq!(menu.selected_control(), ControlItem::Back);
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+        assert_eq!(menu.page(), MenuPage::Options);
+        assert_eq!(menu.selected_option(), OptionItem::Controls);
+
+        let mut menu = controls_menu_on(ControlItem::Reset);
+        menu.handle_input(Back);
+        assert_eq!(menu.page(), MenuPage::Options);
+    }
+
+    #[test]
+    fn test_select_waits_for_a_key_and_binds_it_to_the_action() {
+        let hold = InputAction::Hold;
+        let mut menu = controls_menu_on(ControlItem::Action(hold));
+        assert_eq!(menu.handle_input(Select), MenuResult::CaptureKey);
+        assert!(menu.capturing());
+        // Q quits from the menu, but is just a key while one is wanted.
+        assert_eq!(menu.capture_key(char_key('q')), MenuResult::Stay);
+        assert!(!menu.capturing());
+        assert_eq!(
+            menu.controls_message(),
+            Some(ControlsMessage::Bound(
+                Key::char('q'),
+                hold,
+                Rebind::Refused(InputAction::Quit)
+            ))
+        );
+
+        menu.handle_input(Select);
+        assert_eq!(menu.capture_key(char_key('a')), MenuResult::ControlsChanged);
+        assert_eq!(menu.controls().action_for(Key::char('a')), Some(hold));
+
+        menu.handle_input(Select);
+        assert_eq!(
+            menu.capture_key(KeyCapture::Key(Key::Shift)),
+            MenuResult::Stay
+        );
+        assert_eq!(
+            menu.controls_message(),
+            Some(ControlsMessage::Bound(
+                Key::Shift,
+                hold,
+                Rebind::AlreadyBound
+            ))
+        );
+        assert!(menu.controls().validate().is_ok());
+    }
+
+    #[test]
+    fn test_esc_cancels_waiting_and_ctrl_c_still_exits() {
+        let mut menu = controls_menu_on(ControlItem::Action(InputAction::Pause));
+        menu.handle_input(Select);
+        assert_eq!(menu.capture_key(KeyCapture::Cancel), MenuResult::Stay);
+        assert!(!menu.capturing());
+        assert_eq!(menu.controls(), &Controls::default());
+        assert_eq!(menu.controls_message(), None);
+        assert_eq!(menu.page(), MenuPage::Controls);
+
+        menu.handle_input(Select);
+        assert_eq!(menu.capture_key(KeyCapture::Quit), MenuResult::Exit);
+    }
+
+    #[test]
+    fn test_remove_takes_off_the_last_key_but_never_the_last_usable_one() {
+        let quit = InputAction::Quit;
+        let mut menu = controls_menu_on(ControlItem::Action(quit));
+        assert_eq!(menu.handle_input(Remove), MenuResult::Stay);
+        assert_eq!(
+            menu.controls_message(),
+            Some(ControlsMessage::LastKey(quit))
+        );
+
+        menu.handle_input(Up);
+        menu.handle_input(Up);
+        assert_eq!(menu.controls_message(), None);
+        let pause = InputAction::Pause;
+        for key in [Key::char('p'), Key::F(1)] {
+            assert_eq!(menu.handle_input(Remove), MenuResult::ControlsChanged);
+            assert_eq!(
+                menu.controls_message(),
+                Some(ControlsMessage::Removed(key, pause))
+            );
+        }
+        assert_eq!(menu.handle_input(Remove), MenuResult::Stay);
+        assert_eq!(menu.controls().pause, [Key::Esc]);
+    }
+
+    #[test]
+    fn test_reset_puts_back_the_default_keys() {
+        let mut menu = controls_menu_on(ControlItem::Action(InputAction::HardDrop));
+        menu.handle_input(Remove);
+        assert_ne!(menu.controls(), &Controls::default());
+        while menu.selected_control() != ControlItem::Reset {
+            menu.handle_input(Down);
+        }
+        assert_eq!(menu.handle_input(Select), MenuResult::ControlsChanged);
+        assert_eq!(menu.controls(), &Controls::default());
+        assert_eq!(menu.controls_message(), Some(ControlsMessage::Reset));
+        assert_eq!(menu.handle_input(Select), MenuResult::Stay);
+    }
+
+    #[test]
+    fn test_remove_and_left_or_right_do_nothing_on_other_items() {
+        let mut menu = controls_menu_on(ControlItem::Reset);
+        for input in [Remove, Left, Right] {
+            assert_eq!(menu.handle_input(input), MenuResult::Stay);
+        }
+        assert_eq!(menu.controls(), &Controls::default());
+        assert_eq!(menu.controls_message(), None);
     }
 }

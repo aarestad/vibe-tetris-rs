@@ -319,7 +319,7 @@ impl Demo {
             MenuInput::Left => self.start_scene(base, (self.index + count - 1) % count),
             MenuInput::Right => self.start_scene(base, (self.index + 1) % count),
             MenuInput::Back | MenuInput::Select | MenuInput::Quit => return false,
-            MenuInput::Up | MenuInput::Down => {}
+            MenuInput::Up | MenuInput::Down | MenuInput::Remove => {}
         }
         true
     }

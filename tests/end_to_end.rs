@@ -584,8 +584,8 @@ fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
     // Settings the Options page does not show are kept.
     assert!(terminal.config_file().contains("\"enable_sound\": false"));
 
-    // Up from the top wraps to Back, and Effects Volume is just above it.
-    for _ in 0..3 {
+    // Up from the top wraps to Back, and Effects Volume is just above Controls.
+    for _ in 0..4 {
         terminal.send(UP);
     }
     terminal.wait_for_text("> Effects Volume: < 4 >");
@@ -863,6 +863,76 @@ fn test_keys_remapped_in_the_config_file_work_and_show_in_help() {
     terminal.wait_for_text("CONTROLS");
     terminal.wait_for_text("Hold:       A");
     terminal.wait_for_text("Help:       F2");
+}
+
+/// Opens the Controls page from the Main Menu, through the Options page.
+fn open_controls_page(terminal: &Terminal) {
+    for _ in 0..4 {
+        terminal.send(UP);
+    }
+    terminal.wait_for_text("> Options");
+    terminal.send(ENTER);
+    terminal.wait_for_text("OPTIONS");
+    // Up from the top wraps to Back, and Controls is just above it.
+    terminal.send(UP);
+    terminal.send(UP);
+    terminal.wait_for_text("> Controls");
+    terminal.send(ENTER);
+    terminal.wait_for_text("Reset to Defaults");
+}
+
+#[test]
+fn test_keys_remapped_on_the_controls_page_are_saved_and_work_in_play() {
+    let terminal = Terminal::start_at_menu();
+    open_controls_page(&terminal);
+    for _ in 0..6 {
+        terminal.send(DOWN);
+    }
+    terminal.wait_for_text("> Hold:       Shift C 0");
+    terminal.send(ENTER);
+    terminal.wait_for_text("Press a key for Hold");
+    terminal.send("a");
+    terminal.wait_for_text("A added to Hold");
+    terminal.wait_for_text("> Hold:       Shift C 0 A");
+    terminal.wait_for("the controls to be saved", |t| {
+        let file = t.config_file();
+        let hold = &file[file.find("\"hold\"").unwrap()..];
+        hold[..hold.find(']').unwrap()].contains("\"a\"")
+    });
+
+    terminal.send("\x1b");
+    terminal.wait_for_text("> Controls");
+    terminal.send("\x1b");
+    terminal.wait_for_text("> Options");
+    for _ in 0..6 {
+        terminal.send(UP);
+    }
+    terminal.wait_for_text("> New Game");
+    terminal.send(ENTER);
+    terminal.wait_for_piece();
+    terminal.send("a");
+    terminal.wait_for("a held Tetrimino", hold_panel_has_blocks);
+}
+
+#[test]
+fn test_shift_alone_can_be_bound_on_the_controls_page_of_a_terminal_that_reports_it() {
+    let terminal = Terminal::launch(SOUND_OFF, KeyReleases::Supported, WIDTH, HEIGHT);
+    terminal.wait_for_text("New Game");
+    open_controls_page(&terminal);
+    terminal.wait_for_text("Hold:       Shift C 0");
+    for _ in 0..7 {
+        terminal.send(DOWN);
+    }
+    terminal.wait_for_text("> Pause:");
+    terminal.send(ENTER);
+    terminal.wait_for_text("Press a key for Pause");
+    // Waiting for a key turns on reporting every key, as play does.
+    terminal.wait_for("all keys reported", |t| t.raw_output_contains("\x1b[>11u"));
+    // Kitty's code for Left Shift going down.
+    terminal.send("\x1b[57441;2:1u");
+    terminal.wait_for_text("Shift moved to Pause");
+    terminal.wait_for_text("Hold:       C 0");
+    terminal.wait_for_text("> Pause:      Esc F1 P Shift");
 }
 
 #[test]

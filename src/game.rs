@@ -79,7 +79,7 @@ impl Game {
     pub fn run(&mut self) -> Result<()> {
         let terminal_guard = TerminalGuard::new()?;
 
-        while self.run_menu()? {
+        while self.run_menu(terminal_guard.keyboard_enhanced)? {
             let wants_to_leave = self.play_game(terminal_guard.keyboard_enhanced)?;
             if wants_to_leave {
                 break;
@@ -97,10 +97,14 @@ impl Game {
     }
 
     /// Shows the menu until the player chooses. Returns true to start a game, false to exit.
-    fn run_menu(&mut self) -> Result<bool> {
+    fn run_menu(&mut self, keyboard_enhanced: bool) -> Result<bool> {
         loop {
             while let Some(input) = self.input.poll_menu_input() {
-                match self.menu.handle_input(input) {
+                let mut result = self.menu.handle_input(input);
+                if result == MenuResult::CaptureKey {
+                    result = self.capture_key(keyboard_enhanced)?;
+                }
+                match result {
                     MenuResult::Stay => {}
                     MenuResult::StartGame => return Ok(true),
                     MenuResult::StartDemo => {
@@ -109,8 +113,23 @@ impl Game {
                         }
                     }
                     MenuResult::OptionsChanged => self.save_options(),
+                    MenuResult::ControlsChanged => self.save_controls(),
+                    MenuResult::CaptureKey => {}
                     MenuResult::Exit => return Ok(false),
                 }
+            }
+            self.renderer.render_menu(&self.menu, &self.scores)?;
+            std::thread::sleep(FRAME_DURATION);
+        }
+    }
+
+    /// Waits for the key the Controls page asked for and gives it to the menu. Shift and Ctrl
+    /// alone count on terminals with keyboard enhancement, as they do during play.
+    fn capture_key(&mut self, keyboard_enhanced: bool) -> Result<MenuResult> {
+        let _reporting = ModifierKeyReporting::start(keyboard_enhanced)?;
+        loop {
+            if let Some(capture) = self.input.poll_key_capture() {
+                return Ok(self.menu.capture_key(capture));
             }
             self.renderer.render_menu(&self.menu, &self.scores)?;
             std::thread::sleep(FRAME_DURATION);
@@ -153,6 +172,15 @@ impl Game {
         self.preview_sound_effects();
         if let Err(error) = self.config.save_to_file(&self.config_path) {
             self.warn(format!("could not save options: {error:#}"));
+        }
+    }
+
+    /// Uses the Controls page's key bindings from now on and saves them to the config file.
+    fn save_controls(&mut self) {
+        self.config.controls = self.menu.controls().clone();
+        self.input.set_controls(self.config.controls.clone());
+        if let Err(error) = self.config.save_to_file(&self.config_path) {
+            self.warn(format!("could not save controls: {error:#}"));
         }
     }
 

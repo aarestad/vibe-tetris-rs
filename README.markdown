@@ -23,7 +23,7 @@ earns a congratulatory message and fireworks, with more fireworks for better res
 
 The Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, the music track,
 and the music and sound effects with their volumes from 0 to 10. Changing the effects volume plays
-a sample effect.
+a sample effect. Its Controls page changes the play keys; see Controls below.
 
 There are three tracks: Korobeiniki, the default; Christian Petzold's Minuet in G; and "Ode to
 Joy" from Beethoven's Ninth Symphony. The two extra tracks are public domain melodies in simple
@@ -76,7 +76,12 @@ system repeating a held key and ignored. The first repeat still counts, so holdi
 keys acts at most twice. While Ctrl is a play key, Ctrl+C
 during play acts as C, so use Q to quit a game.
 
-Every play key can be changed in the config file; see `controls` below.
+Every play key can be changed on the Options page's Controls page, or in the config file; see
+`controls` below. On the Controls page, choose an action and press Enter, then press the key to
+add. A key bound to another action moves over, unless it is that action's only key besides Shift
+and Ctrl. Backspace removes the action's last key, and Reset to Defaults puts back the keys above.
+Esc cancels while a key is wanted, so Esc can only be bound in the config file. Shift and Ctrl
+alone can be bound on terminals that report them. Changes are saved as you make them.
 
 ## Configuration
 

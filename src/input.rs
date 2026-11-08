@@ -1,12 +1,12 @@
 use crate::controls::{Controls, Key};
 use crate::high_scores::TextInput;
-use crate::menu::MenuInput;
+use crate::menu::{KeyCapture, MenuInput};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, ModifierKeyCode,
 };
 use std::time::Duration;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputAction {
     MoveLeft,
     MoveRight,
@@ -93,6 +93,11 @@ impl InputHandler {
         }
     }
 
+    /// Uses new key bindings, from the Controls page.
+    pub fn set_controls(&mut self, controls: Controls) {
+        self.controls = controls;
+    }
+
     /// Says whether the terminal now reports Shift and Ctrl alone, as it does during play
     /// on terminals with keyboard enhancement.
     pub fn set_modifier_keys(&mut self, reported: bool) {
@@ -122,6 +127,23 @@ impl InputHandler {
                 Ok(Event::Key(key)) => {
                     if let Some(input) = key_to_menu_input(key) {
                         return Some(input);
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    /// Returns the next key pressed for the Controls page to bind, skipping keys that cannot be
+    /// bound. Does not block.
+    pub fn poll_key_capture(&self) -> Option<KeyCapture> {
+        while let Ok(true) = event::poll(Duration::ZERO) {
+            match event::read() {
+                Ok(Event::Key(key)) => {
+                    if let Some(capture) = key_to_capture(key) {
+                        return Some(capture);
                     }
                 }
                 Ok(_) => {}
@@ -232,9 +254,34 @@ fn key_to_menu_input(key: KeyEvent) -> Option<MenuInput> {
         KeyCode::Right => Some(MenuInput::Right),
         KeyCode::Enter | KeyCode::Char(' ') => Some(MenuInput::Select),
         KeyCode::Esc => Some(MenuInput::Back),
+        KeyCode::Backspace | KeyCode::Delete => Some(MenuInput::Remove),
         KeyCode::Char('q') | KeyCode::Char('Q') => Some(MenuInput::Quit),
         _ => None,
     }
+}
+
+/// A key to bind on the Controls page. Esc cancels, so it can only be bound in the config file.
+/// Keys held with Ctrl or Alt are skipped, since play reads keys without them.
+fn key_to_capture(key: KeyEvent) -> Option<KeyCapture> {
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    if is_ctrl_c(key) {
+        return Some(KeyCapture::Quit);
+    }
+    match key.code {
+        KeyCode::Esc => return Some(KeyCapture::Cancel),
+        // Shift and Ctrl's own key events carry their modifier.
+        KeyCode::Modifier(_) => {}
+        _ if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
+            return None;
+        }
+        _ => {}
+    }
+    key_from_code(key.code).map(KeyCapture::Key)
 }
 
 /// Keys for typing a name. Held keys repeat, as they do in any text field.
@@ -517,6 +564,49 @@ mod tests {
     }
 
     #[test]
+    fn test_key_capture_takes_any_bindable_key_including_shift_and_ctrl_alone() {
+        let press = |code, modifiers| key_to_capture(key(code, modifiers, KeyEventKind::Press));
+        let none = KeyModifiers::NONE;
+        let cases = [
+            (KeyCode::Char('q'), none, Key::Char('q')),
+            (KeyCode::Char('A'), KeyModifiers::SHIFT, Key::Char('a')),
+            (KeyCode::Char(' '), none, Key::Char(' ')),
+            (KeyCode::Enter, none, Key::Enter),
+            (KeyCode::Backspace, none, Key::Backspace),
+            (KeyCode::Up, none, Key::Up),
+            (KeyCode::F(5), none, Key::F(5)),
+            (
+                KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                KeyModifiers::SHIFT,
+                Key::Shift,
+            ),
+            (
+                KeyCode::Modifier(ModifierKeyCode::RightControl),
+                KeyModifiers::CONTROL,
+                Key::Ctrl,
+            ),
+        ];
+        for (code, modifiers, bound) in cases {
+            assert_eq!(
+                press(code, modifiers),
+                Some(KeyCapture::Key(bound)),
+                "{code:?}"
+            );
+        }
+        assert_eq!(press(KeyCode::Esc, none), Some(KeyCapture::Cancel));
+        assert_eq!(
+            press(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            Some(KeyCapture::Quit)
+        );
+        assert_eq!(press(KeyCode::Char('x'), KeyModifiers::CONTROL), None);
+        assert_eq!(press(KeyCode::Char('x'), KeyModifiers::ALT), None);
+        assert_eq!(press(KeyCode::Home, none), None);
+        for kind in [KeyEventKind::Release, KeyEventKind::Repeat] {
+            assert_eq!(key_to_capture(key(KeyCode::Char('x'), none, kind)), None);
+        }
+    }
+
+    #[test]
     fn test_menu_keys() {
         let press = |code| key(code, KeyModifiers::NONE, KeyEventKind::Press);
         let cases = [
@@ -527,6 +617,8 @@ mod tests {
             (KeyCode::Enter, MenuInput::Select),
             (KeyCode::Char(' '), MenuInput::Select),
             (KeyCode::Esc, MenuInput::Back),
+            (KeyCode::Backspace, MenuInput::Remove),
+            (KeyCode::Delete, MenuInput::Remove),
             (KeyCode::Char('q'), MenuInput::Quit),
             (KeyCode::Char('Q'), MenuInput::Quit),
         ];

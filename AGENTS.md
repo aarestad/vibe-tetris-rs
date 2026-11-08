@@ -154,7 +154,7 @@ src/
 
 - Terminal mode: Always use RAII pattern for terminal cleanup
 - Coordinate system: Y increases downward, so y-up rotation tables need their sign reversed
-- Shift and Ctrl alone: reported only while play pushes `REPORT_ALL_KEYS_AS_ESCAPE_CODES`, which is popped before name entry so shifted letters still type
+- Shift and Ctrl alone: reported only while play or the Controls page's key capture pushes `REPORT_ALL_KEYS_AS_ESCAPE_CODES`, which is popped before name entry so shifted letters still type
 - Key releases: only terminals with keyboard enhancement report them; other terminals get one Soft Drop row or one move per key event, with OS key repeat
 - Input handling: Poll in main loop, don't block for extended periods
 - Frame timing: Use `Instant::now()` and `Duration` for accurate timing
