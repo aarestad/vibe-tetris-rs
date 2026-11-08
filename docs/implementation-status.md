@@ -4,11 +4,11 @@ Nov 6, 2026, updated Nov 7, 2026 · @Peter Aarestad
 
 ## Summary
 
-tetris-rs now plays as Guideline Tetris: of 38 Guideline areas, 34 are met, 3 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
+tetris-rs now plays as Guideline Tetris: of 38 Guideline areas, 34 are met, 3 partial and 0 wrong. The last, multiplayer, is left out by your decision. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
 
 What remains:
 
-- **Game flow:** the High Score Table, End Rewards, game statistics, a three-page Help, the high score during play and Starting Blocks are in. Only a player count is missing, which needs multiplayer.
+- **Game flow:** the High Score Table, End Rewards, game statistics, a three-page Help, the high score during play and Starting Blocks are in. The Main Menu has no player count, because the game stays single player.
 - **Sound:** all six required sound effects and most recommended ones now play, and Peter has confirmed they sound good. Music and effects each have an on/off switch and a volume from 0 to 10 on the Options page.
 - **Basic terminals:** Auto-Repeat and 20x Soft Drop need a terminal that reports key releases. Elsewhere, held moves and Soft Drop follow the system's key repeat, whose delay and rate the game cannot see or change. Rotation, Hard Drop, Hold, Pause and Help ignore the steady system repeats, so holding one acts at most twice.
 
@@ -53,7 +53,7 @@ The code is a 14,252-line, single-player Rust terminal game on `main`, built on 
 
 ## Guideline compliance
 
-30 of the 37 areas below now fully meet the Guideline, and none are wrong. Rows follow Guideline order. Section numbers refer to the 2009 Tetris Design Guideline. For rotation, I compared the code against all 28 facing pages, for the I, T, L, J, S and Z.
+34 of the 38 areas below fully meet the Guideline, 3 are partial, none are wrong, and multiplayer is left out by your decision. Rows follow Guideline order. Section numbers refer to the 2009 Tetris Design Guideline. For rotation, I compared the code against all 28 facing pages, for the I, T, L, J, S and Z.
 
 | Guideline area | Section | Status | What the code does today | Code |
 | --- | --- | --- | --- | --- |
@@ -89,14 +89,14 @@ The code is a 14,252-line, single-player Rust terminal game on `main`, built on 
 | Visual effects | 13.1 | Met | Line Clear effects scale with count, and action notifications show outside the Matrix. A Tetrimino flashes white when it Locks Down, a Hard Drop leaves a dim trail that shrinks toward where it landed, and locked Minos are drawn textured (▓) so they stand apart from the solid Tetrimino in play. The Matrix walls are the background graphics: their color shows the level, they flash in the action's color for a Tetris, T-Spin or Back-to-Back, and they run through the level colors for a Level Up. | `src/visual_effects.rs:1` |
 | Sound effects | 13.2 | Met | All six required effects plus Soft and Hard Drop, Hold, each Line Clear size, T-Spins, Back-to-Back, Level Up and blocked moves, synthesized in code. Peter has listened to them. | `src/sound.rs:13` |
 | Background music | 2.5.5, 13.3 | Met | Korobeiniki is the default track. Petzold's Minuet in G and Beethoven's "Ode to Joy", public domain melodies arranged in `build.rs`, are the extra tracks, and Random Play picks a different one for each game. The music loops during each game, restarting from the beginning, and can be turned off and its volume set from 0 to 10 on the Options page. | `src/audio.rs:10` |
-| Main Menu and game flow | 2, 2.3 | Partial | Opens on a menu with New Game, mode (Marathon, Sprint or Ultra), starting level, goal system, Starting Blocks (0 to 10 rows of random Minos, each row with a gap), Options, Help, Scoring Demo and Quit, and Game Over returns to it. High Scores opens the High Score Table. No player count. | `src/menu.rs:235` |
+| Main Menu and game flow | 2, 2.3 | Partial | Opens on a menu with New Game, mode (Marathon, Sprint or Ultra), starting level, goal system, Starting Blocks (0 to 10 rows of random Minos, each row with a gap), Options, Help, Scoring Demo and Quit, and Game Over returns to it. High Scores opens the High Score Table. No player count, because the game stays single player. | `src/menu.rs:235` |
 | Options | 2.5 | Met | An Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound effects, the music track and their volumes, and the play keys on its Controls page, and saves each change to the config file. Changing the effects volume plays a sample effect. Mode, starting level, goal system and Starting Blocks are chosen on the Main Menu and not saved. | `src/menu.rs:190` |
 | Help | 2.6 | Met | Three pages, turned with Left and Right: controls, how to play, and scoring. How to play covers the Matrix, Line Clears, Goal and Level Up, Hold, the Ghost Piece, Game Over and the variants, in Guideline terms. Scoring lists every action's points, taken from the scoring code, plus Back-to-Back and drop points. H opens it during play and stops play, and the menu's Help shows the same pages. No credits page, which the Guideline mentions only as common. | `src/ui.rs:631` |
 | Variants | 12 | Met | Marathon ends after level 15. Sprint ends at 40 lines and Ultra after three minutes, with no Level Up in either. Both show the time to the hundredth. | `src/config.rs:22` |
 | High Score Table, End Rewards, statistics | 11, A1.2.7 | Met | A top 10 per variant, saved to `tetris_scores.json` and opened from the Main Menu. A qualifying game asks for a name in the Game Over box, then shows the table with the new entry marked. Marathon ranks by score, Ultra by score and Sprint by time; quit games and unfinished Sprints do not count. The Game Over box lists Singles, Doubles, Triples, Tetrises, T-Spins, Tetriminos and lines per minute. A new record, a completed Marathon or a place in the table earns a message and fireworks, more for better results. Statistics are not saved in the table. | `src/end_reward.rs` |
-| Multiplayer and Line Attacks | B | Missing | None. The Guideline treats this as product-dependent. |  |
+| Multiplayer and Line Attacks | B | Not planned | Left out by your decision. The Guideline treats multiplayer as product-dependent. |  |
 
-The combo bonus of 50 x combo x Level has been removed, because the 2009 scoring table has no combo action.
+The combo bonus of 50 x combo x Level has been removed, because the 2009 scoring table has no combo action. You decided not to bring it back.
 
 ## Areas of improvement
 
@@ -174,18 +174,6 @@ The structural cleanups from the earlier review are done: `Phase`, `Screen`, `Se
 
 ## Features to implement
 
-The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping in the config file and on the Controls page, the repeat guard for basic terminals, the scoring demonstration, and the extra music tracks. Single player is complete, so only your combo decision and the optional multiplayer remain. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
-
-### 1. Decision to confirm
-
-| Feature | Section | Effort | Notes |
-| --- | --- | --- | --- |
-| Combo bonus | 8 | S | Not in the 2009 scoring table, so recommended for removal to match the Guideline. I have removed it. It can come back if you prefer it. |
-
-### 2. Optional
-
-| Feature | Section | Effort | Notes |
-| --- | --- | --- | --- |
-| Multiplayer and Line Attacks | B | L | Local split screen needs a wide terminal, and networking adds more. Do this last, if at all. |
+The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping in the config file and on the Controls page, the repeat guard for basic terminals, the scoring demonstration, and the extra music tracks. Nothing is left to implement. You decided to keep the combo bonus out, since the 2009 scoring table has none, and not to add multiplayer, so the game stays single player.
 
 I left out the legal screen, logo rules and naming rules in sections 2.1, 2.2 and 12, because they are licensing requirements rather than gameplay.
