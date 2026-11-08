@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::io::Cursor;
 
+use crate::config::MusicTrack;
 use crate::sound::{SAMPLE_RATE, SoundEffect};
 use rodio::buffer::SamplesBuffer;
 use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
@@ -8,6 +9,49 @@ use rodio::{Decoder, OutputStream, OutputStreamBuilder, Sink, Source};
 /// Korobeiniki, the Guideline's default background music (Guideline 13.3). Built into the
 /// binary by `build.rs`. Empty when no MIDI converter was available at build time.
 pub const THEME: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tetris_theme.wav"));
+/// Christian Petzold's Minuet in G, arranged in `build.rs`. Empty without a MIDI converter.
+pub const MINUET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/minuet.wav"));
+/// "Ode to Joy", arranged in `build.rs`. Empty without a MIDI converter.
+pub const ODE_TO_JOY: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ode_to_joy.wav"));
+
+/// The WAV data for a song. Random Play is not a song, so it has none.
+pub fn song_data(track: MusicTrack) -> &'static [u8] {
+    match track {
+        MusicTrack::Korobeiniki => THEME,
+        MusicTrack::Minuet => MINUET,
+        MusicTrack::OdeToJoy => ODE_TO_JOY,
+        MusicTrack::RandomPlay => &[],
+    }
+}
+
+/// The songs this build has music for.
+pub fn available_songs() -> Vec<MusicTrack> {
+    MusicTrack::SONGS
+        .into_iter()
+        .filter(|&song| !song_data(song).is_empty())
+        .collect()
+}
+
+/// The song to play for a game, or None if there is none to play. Random Play picks one of
+/// the available songs at `roll`, never the one played last when there is another to choose
+/// (Guideline 2.5.5).
+pub fn pick_song(
+    choice: MusicTrack,
+    last: Option<MusicTrack>,
+    available: &[MusicTrack],
+    roll: usize,
+) -> Option<MusicTrack> {
+    if choice != MusicTrack::RandomPlay {
+        return available.contains(&choice).then_some(choice);
+    }
+    let fresh: Vec<MusicTrack> = available
+        .iter()
+        .copied()
+        .filter(|&song| Some(song) != last)
+        .collect();
+    let candidates = if fresh.is_empty() { available } else { &fresh };
+    (!candidates.is_empty()).then(|| candidates[roll % candidates.len()])
+}
 
 pub struct AudioPlayer {
     stream: Option<OutputStream>,
@@ -135,18 +179,84 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_embedded_theme_is_valid_audio_when_present() {
-        if !THEME.is_empty() {
-            assert!(Decoder::new(Cursor::new(THEME)).is_ok());
+    fn test_embedded_songs_are_valid_audio_when_present() {
+        for song in MusicTrack::SONGS {
+            let data = song_data(song);
+            if !data.is_empty() {
+                assert!(Decoder::new(Cursor::new(data)).is_ok(), "{song:?}");
+            }
         }
     }
 
-    /// Requires the theme to be in the binary where a build is meant to have one, such as CI.
+    /// Requires every song to be in the binary where a build is meant to have music, such as
+    /// CI.
     #[test]
-    fn test_embedded_theme_exists_when_required() {
+    fn test_embedded_songs_exist_when_required() {
         if std::env::var_os("REQUIRE_EMBEDDED_THEME").is_some() {
-            assert!(!THEME.is_empty(), "the build did not embed any music");
+            assert_eq!(
+                available_songs(),
+                MusicTrack::SONGS,
+                "the build lost some music"
+            );
         }
+    }
+
+    /// Each extra song is long enough to loop without wearing thin: 16 bars at least.
+    #[test]
+    fn test_extra_songs_last_at_least_20_seconds_when_present() {
+        for song in [MusicTrack::Minuet, MusicTrack::OdeToJoy] {
+            let data = song_data(song);
+            if data.is_empty() {
+                continue;
+            }
+            let source = Decoder::new(Cursor::new(data)).unwrap();
+            let duration = source.total_duration().unwrap_or_default();
+            assert!(
+                duration >= std::time::Duration::from_secs(20),
+                "{song:?}: {duration:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_a_chosen_song_plays_only_if_this_build_has_it() {
+        let all = MusicTrack::SONGS;
+        assert_eq!(
+            pick_song(MusicTrack::Minuet, None, &all, 0),
+            Some(MusicTrack::Minuet)
+        );
+        assert_eq!(
+            pick_song(MusicTrack::Minuet, None, &[MusicTrack::Korobeiniki], 0),
+            None
+        );
+        assert_eq!(song_data(MusicTrack::RandomPlay), &[] as &[u8]);
+    }
+
+    #[test]
+    fn test_random_play_never_repeats_the_last_song_when_there_is_another() {
+        let all = MusicTrack::SONGS;
+        for last in all {
+            for roll in 0..10 {
+                let song = pick_song(MusicTrack::RandomPlay, Some(last), &all, roll).unwrap();
+                assert_ne!(song, last);
+            }
+        }
+        let picks: Vec<_> = (0..3)
+            .map(|roll| pick_song(MusicTrack::RandomPlay, None, &all, roll).unwrap())
+            .collect();
+        assert_eq!(picks, all);
+
+        let only = [MusicTrack::Korobeiniki];
+        assert_eq!(
+            pick_song(
+                MusicTrack::RandomPlay,
+                Some(MusicTrack::Korobeiniki),
+                &only,
+                5
+            ),
+            Some(MusicTrack::Korobeiniki)
+        );
+        assert_eq!(pick_song(MusicTrack::RandomPlay, None, &[], 0), None);
     }
 
     /// Plays through a real sound device at zero volume, so it stays silent. Machines with no

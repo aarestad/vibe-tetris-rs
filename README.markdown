@@ -21,8 +21,13 @@ Score Table asks for your name, then shows the table; otherwise any key returns 
 are saved to `tetris_scores.json`. A new record, a completed Marathon or any place in the table
 earns a congratulatory message and fireworks, with more fireworks for better results.
 
-The Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, and the music and
-sound effects with their volumes from 0 to 10. Changing the effects volume plays a sample effect.
+The Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, the music track,
+and the music and sound effects with their volumes from 0 to 10. Changing the effects volume plays
+a sample effect.
+
+There are three tracks: Korobeiniki, the default; Christian Petzold's Minuet in G; and "Ode to
+Joy" from Beethoven's Ninth Symphony. The two extra tracks are public domain melodies in simple
+arrangements made for this game. Random Play picks a different track for each game.
 Each change is saved to `tetris_config.json` right away. The mode, starting level, goal
 system and Starting Blocks last only until the program exits.
 
@@ -93,6 +98,7 @@ in the game rewrites the file with every setting filled in.
   "enable_sound": true,
   "enable_music": true,
   "enable_sound_effects": true,
+  "music_track": "korobeiniki",
   "music_volume": 5,
   "sound_effects_volume": 4,
   "preview_count": 3,
@@ -117,6 +123,8 @@ in the game rewrites the file with every setting filled in.
 `enable_sound` turns all sound on or off. When it is on, `enable_music` and
 `enable_sound_effects` control the background music and the sound effects separately. `music_volume`
 and `sound_effects_volume` go from 0, silent, to 10, full volume.
+
+`music_track` can be `korobeiniki`, `minuet`, `ode_to_joy` or `random_play`.
 
 `game_mode` can be `marathon`, `sprint` or `ultra`.
 

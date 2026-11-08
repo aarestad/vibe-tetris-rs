@@ -33,7 +33,7 @@ counts, module sizes, defects or the feature backlog.
 
 ### Continuous Integration
 - `.github/workflows/ci.yml` runs on every push and on pull requests from forks: `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test` on Linux and macOS
-- The Linux test job installs `timidity` and sets `REQUIRE_EMBEDDED_THEME`, so a build that loses the music fails
+- The Linux test job installs `timidity` and sets `REQUIRE_EMBEDDED_THEME`, so a build that loses any music track fails
 
 ### Development Workflow
 - Always run `cargo check` after making changes to ensure compilation
@@ -122,7 +122,7 @@ counts, module sizes, defects or the feature backlog.
 ## File Structure
 
 ```
-build.rs             # Build script to transform MIDI to WAV; requires timidity for music
+build.rs             # Writes the extra music tracks as MIDI and converts all music to WAV; requires timidity
 tests/
 ├── end_to_end.rs    # Runs the real binary in a pseudo-terminal and reads its screen
 ├── random_play.rs   # Random input games that check the rules always hold

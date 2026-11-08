@@ -1,5 +1,5 @@
-use crate::audio::{AudioPlayer, THEME};
-use crate::config::GameConfig;
+use crate::audio::{AudioPlayer, available_songs, pick_song, song_data};
+use crate::config::{GameConfig, MusicTrack};
 use crate::demo::Demo;
 use crate::end_reward::EndReward;
 use crate::game_state::GameState;
@@ -41,6 +41,8 @@ pub struct Game {
     renderer: Renderer,
     input: InputHandler,
     audio: AudioPlayer,
+    /// The song the last game played, which Random Play does not repeat.
+    last_song: Option<MusicTrack>,
     warnings: Vec<String>,
 }
 
@@ -68,6 +70,7 @@ impl Game {
             scores_path,
             renderer,
             audio,
+            last_song: None,
             warnings: Vec::new(),
         })
     }
@@ -309,12 +312,24 @@ impl Game {
         }
     }
 
+    /// Plays the chosen song, or for Random Play a different song than last game
+    /// (Guideline 2.5.5).
     fn start_music(&mut self) {
-        if !self.config.enable_music || THEME.is_empty() {
+        if !self.config.enable_music {
             return;
         }
+        let roll = rand::random::<u32>() as usize;
+        let Some(song) = pick_song(
+            self.config.music_track,
+            self.last_song,
+            &available_songs(),
+            roll,
+        ) else {
+            return;
+        };
+        self.last_song = Some(song);
         self.audio.set_volume(self.config.music_gain());
-        self.audio.play_background_music(THEME);
+        self.audio.play_background_music(song_data(song));
     }
 
     /// Passes all input waiting this frame to the session.

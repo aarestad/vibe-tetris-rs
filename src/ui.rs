@@ -1,5 +1,5 @@
 use crate::config::GameMode;
-use crate::config::LockDownMode;
+use crate::config::{LockDownMode, MusicTrack};
 use crate::controls::Controls;
 use crate::demo::{Demo, SCENES};
 use crate::end_reward::EndReward;
@@ -235,6 +235,9 @@ impl Renderer {
                         format!("Lock Down: < {mode} >")
                     }
                     OptionItem::Music => format!("Music: < {} >", on_off(options.enable_music)),
+                    OptionItem::MusicTrack => {
+                        format!("Track: < {} >", Self::track_name(options.music_track))
+                    }
                     OptionItem::MusicVolume => {
                         format!("Music Volume: < {} >", options.music_volume)
                     }
@@ -256,6 +259,15 @@ impl Renderer {
         lines.push(Line::from("↑ ↓ move   ← → change"));
         lines.push(Line::from("Saved as you change them"));
         lines
+    }
+
+    fn track_name(track: MusicTrack) -> &'static str {
+        match track {
+            MusicTrack::Korobeiniki => "Korobeiniki",
+            MusicTrack::Minuet => "Minuet",
+            MusicTrack::OdeToJoy => "Ode to Joy",
+            MusicTrack::RandomPlay => "Random Play",
+        }
     }
 
     /// The High Score Table for one variant (Guideline 11.2), with the columns that matter to
@@ -1633,6 +1645,7 @@ mod tests {
             "  Ghost Piece: < On >",
             "  Lock Down: < Extended >",
             "  Music: < On >",
+            "  Track: < Korobeiniki >",
             "  Music Volume: < 5 >",
             "  Sound Effects: < On >",
             "  Effects Volume: < 4 >",
@@ -1647,22 +1660,23 @@ mod tests {
     #[test]
     fn test_longest_option_values_fit_at_the_minimum_menu_size() {
         let mut menu = options_page();
-        for _ in 0..3 {
-            menu.handle_input(MenuInput::Down);
-        }
-        menu.handle_input(MenuInput::Left);
-        for _ in 0..2 {
-            menu.handle_input(MenuInput::Down);
-        }
-        for _ in 0..MAX_VOLUME {
-            menu.handle_input(MenuInput::Right);
-        }
-        menu.handle_input(MenuInput::Down);
-        menu.handle_input(MenuInput::Right);
+        let mut change = |item: OptionItem, input: MenuInput, times: u32| {
+            while menu.selected_option() != item {
+                menu.handle_input(MenuInput::Down);
+            }
+            for _ in 0..times {
+                menu.handle_input(input);
+            }
+        };
+        change(OptionItem::LockDown, MenuInput::Left, 1);
+        change(OptionItem::MusicTrack, MenuInput::Left, 2);
+        change(OptionItem::MusicVolume, MenuInput::Right, MAX_VOLUME);
+        change(OptionItem::SoundEffects, MenuInput::Right, 1);
         let screen = text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
             Renderer::draw_menu(f, &menu, &HighScores::default())
         }));
         assert!(screen.contains("Lock Down: < Classic >"), "{screen}");
+        assert!(screen.contains("Track: < Ode to Joy >"), "{screen}");
         assert!(screen.contains("Music Volume: < 10 >"), "{screen}");
         assert!(screen.contains("> Sound Effects: < Off >"), "{screen}");
         assert!(screen.contains("Saved as you change them"), "{screen}");

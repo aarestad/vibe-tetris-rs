@@ -30,6 +30,30 @@ pub enum GameMode {
     Ultra,
 }
 
+/// The background music for a game (Guideline 2.5.5 and 13.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MusicTrack {
+    /// The Guideline's required default.
+    #[default]
+    Korobeiniki,
+    /// Christian Petzold's Minuet in G major.
+    Minuet,
+    /// "Ode to Joy", from Beethoven's Ninth Symphony.
+    OdeToJoy,
+    /// A different track for each game.
+    RandomPlay,
+}
+
+impl MusicTrack {
+    /// The tracks that are songs, in the order the Options page shows them.
+    pub const SONGS: [MusicTrack; 3] = [
+        MusicTrack::Korobeiniki,
+        MusicTrack::Minuet,
+        MusicTrack::OdeToJoy,
+    ];
+}
+
 /// Loudest volume setting for the music and the sound effects. A setting of `n` plays at
 /// `n / MAX_VOLUME` of full volume.
 pub const MAX_VOLUME: u32 = 10;
@@ -69,6 +93,8 @@ pub struct GameConfig {
     pub enable_music: bool,
     /// Plays sound effects (Guideline 2.5.6).
     pub enable_sound_effects: bool,
+    /// The background music: one track, or Random Play (Guideline 2.5.5).
+    pub music_track: MusicTrack,
     /// Background music volume, from 0 to 10 (Guideline 2.5.5).
     pub music_volume: u32,
     /// Sound effect volume, from 0 to 10 (Guideline 2.5.6).
@@ -100,6 +126,7 @@ impl Default for GameConfig {
             enable_sound: true,
             enable_music: true,
             enable_sound_effects: true,
+            music_track: MusicTrack::Korobeiniki,
             music_volume: 5,
             sound_effects_volume: 4,
             preview_count: 3,
@@ -231,6 +258,21 @@ mod tests {
         let config: GameConfig = serde_json::from_str(r#"{"enable_music": false}"#).unwrap();
         assert!(!config.enable_music);
         assert!(config.enable_sound_effects);
+    }
+
+    #[test]
+    fn test_music_track_defaults_to_korobeiniki_and_parses_from_snake_case() {
+        assert_eq!(GameConfig::default().music_track, MusicTrack::Korobeiniki);
+        for (name, track) in [
+            ("korobeiniki", MusicTrack::Korobeiniki),
+            ("minuet", MusicTrack::Minuet),
+            ("ode_to_joy", MusicTrack::OdeToJoy),
+            ("random_play", MusicTrack::RandomPlay),
+        ] {
+            let json = format!(r#"{{"music_track": "{name}"}}"#);
+            let config: GameConfig = serde_json::from_str(&json).unwrap();
+            assert_eq!(config.music_track, track);
+        }
     }
 
     #[test]

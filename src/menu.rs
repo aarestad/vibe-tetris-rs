@@ -1,4 +1,4 @@
-use crate::config::{GameConfig, GameMode, LockDownMode, MAX_VOLUME};
+use crate::config::{GameConfig, GameMode, LockDownMode, MAX_VOLUME, MusicTrack};
 use crate::controls::Controls;
 use crate::screen::HelpPage;
 
@@ -9,6 +9,13 @@ const LOCK_DOWN_MODES: [LockDownMode; 3] = [
     LockDownMode::Extended,
     LockDownMode::Infinite,
     LockDownMode::Classic,
+];
+/// Music choices in the order the Options page shows them (Guideline 2.5.5).
+const MUSIC_TRACKS: [MusicTrack; 4] = [
+    MusicTrack::Korobeiniki,
+    MusicTrack::Minuet,
+    MusicTrack::OdeToJoy,
+    MusicTrack::RandomPlay,
 ];
 /// Next Queue sizes the Options page offers (Guideline 2.5.1).
 const PREVIEW_COUNTS: [usize; 6] = [1, 2, 3, 4, 5, 6];
@@ -70,6 +77,8 @@ pub enum OptionItem {
     GhostPiece,
     LockDown,
     Music,
+    /// Which song plays, or Random Play (Guideline 2.5.5).
+    MusicTrack,
     MusicVolume,
     SoundEffects,
     SoundEffectsVolume,
@@ -78,12 +87,13 @@ pub enum OptionItem {
 
 impl OptionItem {
     /// All items in the order shown.
-    pub const ALL: [OptionItem; 9] = [
+    pub const ALL: [OptionItem; 10] = [
         OptionItem::NextQueue,
         OptionItem::Hold,
         OptionItem::GhostPiece,
         OptionItem::LockDown,
         OptionItem::Music,
+        OptionItem::MusicTrack,
         OptionItem::MusicVolume,
         OptionItem::SoundEffects,
         OptionItem::SoundEffectsVolume,
@@ -124,6 +134,7 @@ pub struct Options {
     pub lock_down_mode: LockDownMode,
     pub enable_music: bool,
     pub enable_sound_effects: bool,
+    pub music_track: MusicTrack,
     /// From 0 to `MAX_VOLUME`.
     pub music_volume: u32,
     /// From 0 to `MAX_VOLUME`.
@@ -139,6 +150,7 @@ impl Options {
             lock_down_mode: config.lock_down_mode,
             enable_music: config.enable_music,
             enable_sound_effects: config.enable_sound_effects,
+            music_track: config.music_track,
             music_volume: config.music_volume,
             sound_effects_volume: config.sound_effects_volume,
         }
@@ -152,6 +164,7 @@ impl Options {
         config.lock_down_mode = self.lock_down_mode;
         config.enable_music = self.enable_music;
         config.enable_sound_effects = self.enable_sound_effects;
+        config.music_track = self.music_track;
         config.music_volume = self.music_volume;
         config.sound_effects_volume = self.sound_effects_volume;
     }
@@ -397,6 +410,9 @@ impl Menu {
             OptionItem::Music => options.enable_music = !options.enable_music,
             OptionItem::SoundEffects => {
                 options.enable_sound_effects = !options.enable_sound_effects;
+            }
+            OptionItem::MusicTrack => {
+                options.music_track = cycle(&MUSIC_TRACKS, options.music_track, forward);
             }
             OptionItem::MusicVolume => {
                 return change_volume(&mut options.music_volume, forward);
@@ -789,6 +805,22 @@ mod tests {
             }
             assert_eq!(menu.options(), expected, "{item:?}");
         }
+    }
+
+    #[test]
+    fn test_music_track_cycles_through_every_song_and_random_play() {
+        let mut menu = options_menu_on(OptionItem::MusicTrack);
+        for track in [
+            MusicTrack::Minuet,
+            MusicTrack::OdeToJoy,
+            MusicTrack::RandomPlay,
+            MusicTrack::Korobeiniki,
+        ] {
+            assert_eq!(menu.handle_input(Right), MenuResult::OptionsChanged);
+            assert_eq!(menu.options().music_track, track);
+        }
+        menu.handle_input(Left);
+        assert_eq!(menu.options().music_track, MusicTrack::RandomPlay);
     }
 
     #[test]

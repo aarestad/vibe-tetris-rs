@@ -18,34 +18,34 @@ This report describes `main` at commit `615559b`, which adds the scoring demonst
 
 ## Current state
 
-The code is a 13,053-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
+The code is a 13,442-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
 
 | Module | Lines (with tests) | Tests | Responsibility |
 | --- | --- | --- | --- |
 | `src/game_state.rs` | 2,056 | 90 | Phases, generation, gravity, Lock Down, Hold, T-Spin recognition, seedable bag, Starting Blocks, sound and visual effect events |
-| `src/ui.rs` | 2,439 | 58 | ratatui rendering: menu, Options and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash, Hard Drop trail and level-colored walls, the scoring demonstration, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
+| `src/ui.rs` | 2,453 | 58 | ratatui rendering: menu, Options and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash, Hard Drop trail and level-colored walls, the scoring demonstration, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
 | `tests/end_to_end.rs` | 1,083 | 39 | Runs the real binary in a pseudo-terminal and reads its screen |
-| `src/menu.rs` | 951 | 34 | Main Menu choices, the Options page and the High Scores page, with no terminal |
+| `src/menu.rs` | 983 | 35 | Main Menu choices, the Options page and the High Scores page, with no terminal |
 | `src/scoring.rs` | 660 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
 | `src/session.rs` | 677 | 31 | Input and time handling for one game, with no terminal or sound, including the repeat guard |
 | `src/input.rs` | 724 | 25 | Play keys through the bindings, Shift and Ctrl alone, menu and name entry keys, key press and release events, Auto-Repeat, and guessing system key repeat |
 | `src/high_scores.rs` | 516 | 13 | High Score Table per variant, ranking, saving and loading, name entry |
 | `src/board.rs` | 494 | 38 | Matrix and Buffer Zone storage, collision, Line Clear |
 | `src/tetrimino.rs` | 365 | 11 | Facings, Tetrimino shapes, generation position, Super Rotation tables |
-| `src/game.rs` | 401 | 0 | Connects the menu and each game to the real terminal and sound device, reports Shift and Ctrl during play, runs the scoring demonstration, sets the volumes, and saves options and high scores |
+| `src/game.rs` | 416 | 0 | Connects the menu and each game to the real terminal and sound device, reports Shift and Ctrl during play, runs the scoring demonstration, sets the volumes, and saves options and high scores |
 | `tests/skilled_play.rs` | 266 | 4 | A bot plays seeded Marathons, Sprints and Ultras through real key events |
-| `src/config.rs` | 374 | 12 | JSON config with defaults, validation and saving, including the game mode, Starting Blocks, volumes and controls |
+| `src/config.rs` | 416 | 13 | JSON config with defaults, validation and saving, including the game mode, Starting Blocks, volumes and controls |
 | `src/controls.rs` | 368 | 7 | Key bindings for each play action, key names for the config file, and their checks |
-| `src/audio.rs` | 238 | 8 | Embedded background music and sound effects via rodio |
+| `src/audio.rs` | 348 | 11 | Embedded music tracks, Random Play's choice of song, and sound effects via rodio |
 | `src/sound.rs` | 224 | 7 | Sound effects as synthesized notes, rendered to samples |
 | `tests/random_play.rs` | 112 | 1 | Seeded random key events in all game, Lock Down, goal and input modes, with 0 to 10 rows of Starting Blocks |
 | `src/visual_effects.rs` | 261 | 5 | Lock Down flash, Hard Drop trail and wall highlight timing and cells |
 | `src/demo.rs` | 522 | 6 | The scoring demonstration: 13 scripted scenes on the real engine, one per point-scoring action |
 | `src/end_reward.rs` | 95 | 2 | Which games earn an End Reward, its message and how many fireworks |
 | `src/screen.rs` | 143 | 7 | Playing, Paused and Help screens, the Help pages and the keys that switch them |
-| `build.rs` | 39 | 0 | Converts the Korobeiniki MIDI to WAV with `timidity` |
+| `build.rs` | 215 | 0 | Writes the Minuet and Ode to Joy as MIDI from note lists, and converts them and the Korobeiniki MIDI to WAV with `timidity` |
 
-- **Tests:** `cargo test` passes all 426 tests: 382 in the library, 39 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
+- **Tests:** `cargo test` passes all 431 tests: 387 in the library, 39 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
 - **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `615559b`, passed lint and all 426 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
@@ -88,9 +88,9 @@ The code is a 13,053-line, single-player Rust terminal game on `main`, built on 
 | Controls | 4, 4.1 | Met | Every key in the Guideline's keyboard table works, with numpad keys read as digits. Shift holds and Ctrl rotates counterclockwise on terminals with keyboard enhancement, where play turns on reporting every key; elsewhere C and Z do the same. Every key can be remapped in the config file's `controls` section, which rejects a key bound twice and an action with only Shift or Ctrl. While Ctrl is a play key, Ctrl+C during play acts as C, and Q still quits. Help lists the keys as bound. | `src/controls.rs:121` |
 | Visual effects | 13.1 | Met | Line Clear effects scale with count, and action notifications show outside the Matrix. A Tetrimino flashes white when it Locks Down, a Hard Drop leaves a dim trail that shrinks toward where it landed, and locked Minos are drawn textured (▓) so they stand apart from the solid Tetrimino in play. The Matrix walls are the background graphics: their color shows the level, they flash in the action's color for a Tetris, T-Spin or Back-to-Back, and they run through the level colors for a Level Up. | `src/visual_effects.rs:1` |
 | Sound effects | 13.2 | Met | All six required effects plus Soft and Hard Drop, Hold, each Line Clear size, T-Spins, Back-to-Back, Level Up and blocked moves, synthesized in code. Peter has listened to them. | `src/sound.rs:13` |
-| Background music | 2.5.5, 13.3 | Met | Korobeiniki is embedded in the binary as the default and only track, and loops during each game, restarting from the beginning. It can be turned off, and its volume set from 0 to 10, on the Options page. Extra tracks are optional and not included. | `src/audio.rs:10` |
+| Background music | 2.5.5, 13.3 | Met | Korobeiniki is the default track. Petzold's Minuet in G and Beethoven's "Ode to Joy", public domain melodies arranged in `build.rs`, are the extra tracks, and Random Play picks a different one for each game. The music loops during each game, restarting from the beginning, and can be turned off and its volume set from 0 to 10 on the Options page. | `src/audio.rs:10` |
 | Main Menu and game flow | 2, 2.3 | Partial | Opens on a menu with New Game, mode (Marathon, Sprint or Ultra), starting level, goal system, Starting Blocks (0 to 10 rows of random Minos, each row with a gap), Options, Help, Scoring Demo and Quit, and Game Over returns to it. High Scores opens the High Score Table. No player count. | `src/menu.rs:135` |
-| Options | 2.5 | Met | An Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound effects and their volumes, and saves each change to the config file. Changing the effects volume plays a sample effect. Mode, starting level, goal system and Starting Blocks are chosen on the Main Menu and not saved. | `src/menu.rs:114` |
+| Options | 2.5 | Met | An Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound effects, the music track and their volumes, and saves each change to the config file. Changing the effects volume plays a sample effect. Mode, starting level, goal system and Starting Blocks are chosen on the Main Menu and not saved. | `src/menu.rs:114` |
 | Help | 2.6 | Met | Three pages, turned with Left and Right: controls, how to play, and scoring. How to play covers the Matrix, Line Clears, Goal and Level Up, Hold, the Ghost Piece, Game Over and the variants, in Guideline terms. Scoring lists every action's points, taken from the scoring code, plus Back-to-Back and drop points. H opens it during play and stops play, and the menu's Help shows the same pages. No credits page, which the Guideline mentions only as common. | `src/ui.rs:631` |
 | Variants | 12 | Met | Marathon ends after level 15. Sprint ends at 40 lines and Ultra after three minutes, with no Level Up in either. Both show the time to the hundredth. | `src/config.rs:22` |
 | High Score Table, End Rewards, statistics | 11, A1.2.7 | Met | A top 10 per variant, saved to `tetris_scores.json` and opened from the Main Menu. A qualifying game asks for a name in the Game Over box, then shows the table with the new entry marked. Marathon ranks by score, Ultra by score and Sprint by time; quit games and unfinished Sprints do not count. The Game Over box lists Singles, Doubles, Triples, Tetrises, T-Spins, Tetriminos and lines per minute. A new record, a completed Marathon or a place in the table earns a message and fireworks, more for better results. Statistics are not saved in the table. | `src/end_reward.rs` |
@@ -124,7 +124,7 @@ All 12 listed defects are fixed, along with one new bug found during testing. Th
 
 The test suite now covers the game from rules through to the real terminal, and deliberately breaking the code in 19 ways was caught each time. Some gaps remain:
 
-- **Music:** a silent test confirms the sound device reports paused and resumed and that the music restarts for each game, and CI confirms the theme is embedded and decodes on Linux. Peter has listened to it. The device test skips itself on machines with no sound device, which probably includes the CI runners. The sound effects are tested as rendered samples and game events, and Peter has listened to them.
+- **Music:** a silent test confirms the sound device reports paused and resumed and that the music restarts for each game, and CI confirms every music track is embedded and decodes on Linux, and a test checks each extra track lasts at least 20 seconds. Peter has listened to Korobeiniki, but not yet to the Minuet or Ode to Joy. The device test skips itself on machines with no sound device, which probably includes the CI runners. The sound effects are tested as rendered samples and game events, and Peter has listened to them.
 - **Real terminals:** key-release tests send kitty-protocol key codes through a simulated terminal, and Peter confirmed held keys work in Ghostty. kitty, WezTerm and iTerm2 are untested, but they use the same keyboard protocol.
 - **Bot seeds:** the skilled play tests use seeds the bot wins with, because it loses about 6% of unseeded runs. A `rand` upgrade could change the piece order and require new seeds, and a failure then would not necessarily mean a bug.
 - **Fork pull requests:** the CI trigger is in place, but no fork pull request has exercised it yet.
@@ -140,7 +140,7 @@ The structural cleanups from the earlier review are done: `Phase`, `Screen`, `Se
 
 ## Features to implement
 
-The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping, the repeat guard for basic terminals, and the scoring demonstration. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
+The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping, the repeat guard for basic terminals, the scoring demonstration, and the extra music tracks. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
 
 ### 1. Decision to confirm
 
@@ -152,7 +152,6 @@ The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, 
 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |
-| Extra music tracks | 2.5.5, 13.3 | M | Optional. Korobeiniki must stay the default. More tracks would need public domain melodies arranged as MIDI, plus a track choice or Random Play on the Options page. |
 | Key remapping in the menu | 4 | M | Optional. Keys can be remapped in the config file. A Controls page could capture a key press for each action instead. |
 
 ### 3. Optional
