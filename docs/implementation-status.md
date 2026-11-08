@@ -14,7 +14,7 @@ What remains:
 
 One risk still needs your decision: the Guideline PDF, which is marked CONFIDENTIAL, and its extracted text are removed from `main`. They remain in the public GitHub repo's history.
 
-This report describes `main` at commit `f9bc934`, which adds the Controls page for remapping keys from the menu. It passes lint and all 446 tests locally and in CI on Linux and macOS. Peter has listened to Korobeiniki, though not yet to the two new tracks, and has confirmed that held keys work in Ghostty, and that the sound effects sound good.
+This report describes `main` at commit `2d1acf4`, which adds the test coverage report. It passes lint and all 446 tests locally and in CI on Linux and macOS. Peter has listened to Korobeiniki, though not yet to the two new tracks, and has confirmed that held keys work in Ghostty, and that the sound effects sound good.
 
 ## Current state
 
@@ -47,7 +47,7 @@ The code is a 14,218-line, single-player Rust terminal game on `main`, built on 
 
 - **Tests:** `cargo test` passes all 446 tests: 400 in the library, 41 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 8 seconds, run only on Unix, and always turn sound off. They cover 98.79% of lines; see Test coverage below.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
-- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `f9bc934`, passed lint and all 446 tests on both.
+- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `2d1acf4`, passed lint and all 446 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
 - **Docs:** the README covers the menu, its three modes, the Options page, the Game Over statistics, the High Score Table, End Rewards and Help, running, controls and configuration, including the sound and mode settings, and `AGENTS.md` matches the code.
 
