@@ -340,7 +340,8 @@ impl Terminal {
                 self.screen_text()
             );
             self.send(" ");
-            sleep_ms(30);
+            // Presses closer together look like a held key's system repeat and are ignored.
+            sleep_ms(150);
         }
     }
 

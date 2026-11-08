@@ -20,6 +20,55 @@ pub enum InputAction {
     Quit,
 }
 
+impl InputAction {
+    /// Whether holding the key should keep acting: moves and Soft Drop do, while rotation,
+    /// Hard Drop, Hold and the screen keys act once per press.
+    pub fn repeats_when_held(self) -> bool {
+        matches!(
+            self,
+            InputAction::MoveLeft | InputAction::MoveRight | InputAction::MoveDown
+        )
+    }
+}
+
+/// Presses of one key closer together than this are taken to be the system repeating a held
+/// key. System repeat comes every 30 to 90 ms, while a player tapping the same key rarely
+/// manages two presses this close together.
+pub const REPEAT_GAP: Duration = Duration::from_millis(120);
+
+/// Guesses which presses are the system's key repeat, on terminals that report no key
+/// releases (Guideline 5.2). The first repeat after the system's repeat delay looks like a
+/// new press and still acts, but the steady repeats after it are caught, so holding a
+/// rotation or Hard Drop key acts at most twice instead of over and over.
+#[derive(Debug, Default)]
+pub struct RepeatGuard {
+    /// When each action's key was last pressed, including caught repeats, so a whole run of
+    /// repeats is caught.
+    last_press: Vec<(InputAction, Duration)>,
+}
+
+impl RepeatGuard {
+    /// Records a press at `now` and says whether it looks like a repeat of a held key.
+    pub fn is_repeat(&mut self, action: InputAction, now: Duration) -> bool {
+        match self.last_press.iter_mut().find(|(seen, _)| *seen == action) {
+            Some((_, last)) => {
+                let gap = now.saturating_sub(*last);
+                *last = now;
+                gap < REPEAT_GAP
+            }
+            None => {
+                self.last_press.push((action, now));
+                false
+            }
+        }
+    }
+
+    /// Records a release, which proves the next press is a new one.
+    pub fn release(&mut self, action: InputAction) {
+        self.last_press.retain(|(seen, _)| *seen != action);
+    }
+}
+
 /// A key going down or coming up. Releases only arrive on terminals with keyboard enhancement.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum InputEvent {
@@ -566,6 +615,48 @@ mod tests {
             Some(InputEvent::Released(InputAction::MoveLeft))
         );
         assert_eq!(handler.key_to_event(event(KeyEventKind::Repeat)), None);
+    }
+
+    #[test]
+    fn test_repeat_guard_catches_a_run_of_system_repeats_but_not_slower_presses() {
+        let mut guard = RepeatGuard::default();
+        let ms = Duration::from_millis;
+        assert!(!guard.is_repeat(InputAction::HardDrop, ms(0)));
+        // The first repeat after the system's delay looks like a new press.
+        assert!(!guard.is_repeat(InputAction::HardDrop, ms(500)));
+        for time in [530, 560, 590, 700] {
+            assert!(guard.is_repeat(InputAction::HardDrop, ms(time)), "{time}");
+        }
+        assert!(!guard.is_repeat(InputAction::HardDrop, ms(700) + REPEAT_GAP));
+        // Each key is guarded on its own.
+        assert!(!guard.is_repeat(InputAction::Hold, ms(820)));
+    }
+
+    #[test]
+    fn test_repeat_guard_trusts_a_press_after_a_release() {
+        let mut guard = RepeatGuard::default();
+        assert!(!guard.is_repeat(InputAction::RotateClockwise, Duration::ZERO));
+        guard.release(InputAction::RotateClockwise);
+        assert!(!guard.is_repeat(InputAction::RotateClockwise, Duration::ZERO));
+    }
+
+    #[test]
+    fn test_only_moves_and_soft_drop_repeat_when_held() {
+        use InputAction::*;
+        for action in [MoveLeft, MoveRight, MoveDown] {
+            assert!(action.repeats_when_held(), "{action:?}");
+        }
+        for action in [
+            RotateClockwise,
+            RotateCounterClockwise,
+            HardDrop,
+            Hold,
+            Pause,
+            ToggleHelp,
+            Quit,
+        ] {
+            assert!(!action.repeats_when_held(), "{action:?}");
+        }
     }
 
     #[test]

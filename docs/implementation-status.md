@@ -10,7 +10,7 @@ What remains:
 
 - **Game flow:** the High Score Table, End Rewards, game statistics, a three-page Help, the high score during play and Starting Blocks are in. Only a player count is missing, which needs multiplayer.
 - **Sound:** all six required sound effects and most recommended ones now play, and Peter has confirmed they sound good. Music and effects each have an on/off switch and a volume from 0 to 10 on the Options page.
-- **Basic terminals:** Auto-Repeat and 20x Soft Drop need a terminal that reports key releases. Elsewhere, holding a key falls back to OS key repeat.
+- **Basic terminals:** Auto-Repeat and 20x Soft Drop need a terminal that reports key releases. Elsewhere, held moves and Soft Drop follow the system's key repeat, whose delay and rate the game cannot see or change. Rotation, Hard Drop, Hold, Pause and Help ignore the steady system repeats, so holding one acts at most twice.
 
 One risk still needs your decision: the Guideline PDF, which is marked CONFIDENTIAL, and its extracted text are removed from `main`. They remain in the public GitHub repo's history.
 
@@ -18,17 +18,17 @@ This report describes `main` at commit `3dca0aa`, which marks the level and big 
 
 ## Current state
 
-The code is a 12,138-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
+The code is a 12,305-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
 
 | Module | Lines (with tests) | Tests | Responsibility |
 | --- | --- | --- | --- |
 | `src/game_state.rs` | 2,056 | 90 | Phases, generation, gravity, Lock Down, Hold, T-Spin recognition, seedable bag, Starting Blocks, sound and visual effect events |
 | `src/ui.rs` | 2,310 | 57 | ratatui rendering: menu, Options and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash, Hard Drop trail and level-colored walls, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
-| `tests/end_to_end.rs` | 1,062 | 38 | Runs the real binary in a pseudo-terminal and reads its screen |
+| `tests/end_to_end.rs` | 1,063 | 38 | Runs the real binary in a pseudo-terminal and reads its screen |
 | `src/menu.rs` | 935 | 33 | Main Menu choices, the Options page and the High Scores page, with no terminal |
 | `src/scoring.rs` | 651 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
-| `src/session.rs` | 597 | 27 | Input and time handling for one game, with no terminal or sound |
-| `src/input.rs` | 633 | 22 | Play keys through the bindings, Shift and Ctrl alone, menu and name entry keys, key press and release events, Auto-Repeat |
+| `src/session.rs` | 672 | 31 | Input and time handling for one game, with no terminal or sound, including the repeat guard |
+| `src/input.rs` | 724 | 25 | Play keys through the bindings, Shift and Ctrl alone, menu and name entry keys, key press and release events, Auto-Repeat, and guessing system key repeat |
 | `src/high_scores.rs` | 516 | 13 | High Score Table per variant, ranking, saving and loading, name entry |
 | `src/board.rs` | 494 | 38 | Matrix and Buffer Zone storage, collision, Line Clear |
 | `src/tetrimino.rs` | 352 | 11 | Facings, Tetrimino shapes, generation position, Super Rotation tables |
@@ -44,7 +44,7 @@ The code is a 12,138-line, single-player Rust terminal game on `main`, built on 
 | `src/screen.rs` | 143 | 7 | Playing, Paused and Help screens, the Help pages and the keys that switch them |
 | `build.rs` | 39 | 0 | Converts the Korobeiniki MIDI to WAV with `timidity` |
 
-- **Tests:** `cargo test` passes all 410 tests: 367 in the library, 38 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
+- **Tests:** `cargo test` passes all 417 tests: 374 in the library, 38 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
 - **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `3dca0aa`, passed lint and all 410 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
@@ -64,7 +64,7 @@ The code is a 12,138-line, single-player Rust terminal game on `main`, built on 
 | Generation timing and first drop | 3.4, A1.2.1 | Met | 0.2 second delay after Lock Down, then an immediate one-row drop if clear. | `src/game_state.rs:390` |
 | Tetrimino Facings | A1.3 | Met | All seven shapes rotate within their boxes, including the corrected I North. | `src/tetrimino.rs:79` |
 | Movement | 5.1 | Met | One cell at a time with collision checks. Movement snaps, with no smoothing. | `src/game_state.rs:427` |
-| Auto-Repeat | 5.2 | Partial | With key release reporting: 0.3 second delay, then 50 ms per move, with opposite-key handling. Otherwise it uses OS key repeat, which can also repeat rotation and Hard Drop. | `src/input.rs:157` |
+| Auto-Repeat | 5.2 | Partial | With key release reporting: 0.3 second delay, then 50 ms per move, with opposite-key handling. Otherwise moves follow the system's key repeat, and presses of a one-shot key less than 120 ms apart are taken as system repeats and ignored, so a held rotation or Hard Drop key acts at most twice. | `src/input.rs:44` |
 | Super Rotation System | A1.4 | Met | Five rotation points per facing change, with the Guideline's two unused T points left out. The point used is recorded. | `src/tetrimino.rs:123` |
 | Hard Drop | 5.4 | Met | Drops and locks instantly. | `src/game_state.rs:504` |
 | Soft Drop | 5.5 | Partial | 20 times Fall Speed with key release reporting. Otherwise one row per key event. | `src/game_state.rs:438` |
@@ -138,28 +138,22 @@ The structural cleanups from the earlier review are done: `Phase`, `Screen`, `Se
 
 ## Features to implement
 
-The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, and key remapping. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
+The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping, and the repeat guard for basic terminals. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
 
-### 1. Terminal input
-
-| Feature | Section | Effort | Notes |
-| --- | --- | --- | --- |
-| Better fallback for basic terminals | 5.2, 5.5 | M | Terminals without key release reporting still rely on OS key repeat. A timing heuristic could approximate held keys. |
-
-### 2. Decision to confirm
+### 1. Decision to confirm
 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |
 | Combo bonus | 8 | S | Not in the 2009 scoring table, so recommended for removal to match the Guideline. I have removed it. It can come back if you prefer it. |
 
-### 3. Controls, effects and sound
+### 2. Controls, effects and sound
 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |
 | Extra music tracks | 2.5.5, 13.3 | M | Optional. Korobeiniki must stay the default. More tracks would need public domain melodies arranged as MIDI, plus a track choice or Random Play on the Options page. |
 | Key remapping in the menu | 4 | M | Optional. Keys can be remapped in the config file. A Controls page could capture a key press for each action instead. |
 
-### 4. Optional
+### 3. Optional
 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |

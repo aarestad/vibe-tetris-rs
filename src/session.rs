@@ -1,6 +1,6 @@
 use crate::config::GameConfig;
 use crate::game_state::GameState;
-use crate::input::{AutoRepeat, InputAction, InputEvent};
+use crate::input::{AutoRepeat, InputAction, InputEvent, RepeatGuard};
 use crate::screen::Screen;
 use crate::sound::SoundEffect;
 use std::time::Duration;
@@ -22,6 +22,10 @@ pub struct Session {
     auto_repeat: AutoRepeat,
     /// True when the terminal reports key releases, which continuous input needs.
     key_release_events: bool,
+    /// Catches the system's key repeat when there are no key releases to go by.
+    repeat_guard: RepeatGuard,
+    /// Time since the session started, on every screen, to time key presses.
+    clock: Duration,
 }
 
 impl Session {
@@ -46,6 +50,8 @@ impl Session {
             screen: Screen::default(),
             auto_repeat,
             key_release_events: false,
+            repeat_guard: RepeatGuard::default(),
+            clock: Duration::ZERO,
         }
     }
 
@@ -72,6 +78,7 @@ impl Session {
         match input {
             InputEvent::Pressed(action) => self.handle_press(action),
             InputEvent::Released(action) => {
+                self.repeat_guard.release(action);
                 self.handle_release(action);
                 None
             }
@@ -80,6 +87,7 @@ impl Session {
 
     /// Advances play by the time since the last update. Time passes only on `Playing`.
     pub fn update(&mut self, dt: Duration) {
+        self.clock += dt;
         if !self.screen.is_playing() {
             return;
         }
@@ -91,6 +99,15 @@ impl Session {
     }
 
     fn handle_press(&mut self, action: InputAction) -> Option<MusicChange> {
+        // Without key releases, a held key arrives as a stream of presses. Keys that act once
+        // per press must not act again for each one.
+        if !self.key_release_events
+            && !action.repeats_when_held()
+            && action != InputAction::Quit
+            && self.repeat_guard.is_repeat(action, self.clock)
+        {
+            return None;
+        }
         if action == InputAction::Quit {
             self.state.quit();
             return None;
@@ -164,6 +181,7 @@ impl Session {
 mod tests {
     use super::*;
     use crate::game_state::{GameOutcome, Phase};
+    use crate::input::REPEAT_GAP;
     use crate::screen::HelpPage;
     use crate::tetrimino::{Facing, Tetrimino, TetriminoType};
     use InputAction::*;
@@ -325,6 +343,61 @@ mod tests {
         assert_eq!(piece(&session).y, 7);
     }
 
+    #[test]
+    fn test_without_releases_a_held_rotation_or_hard_drop_key_acts_at_most_twice() {
+        let mut session = session(false);
+        let facing = |session: &Session| piece(session).facing;
+        session.handle_input(press(RotateClockwise));
+        assert_eq!(facing(&session), Facing::East);
+        // The system's repeat delay, then steady repeats.
+        session.update(ms(400));
+        session.handle_input(press(RotateClockwise));
+        assert_eq!(facing(&session), Facing::South);
+        for _ in 0..10 {
+            session.update(ms(30));
+            session.handle_input(press(RotateClockwise));
+        }
+        assert_eq!(facing(&session), Facing::South);
+
+        // A deliberate press after letting go still rotates.
+        session.update(ms(200));
+        session.handle_input(press(RotateClockwise));
+        assert_eq!(facing(&session), Facing::West);
+    }
+
+    #[test]
+    fn test_without_releases_a_held_pause_key_does_not_flicker() {
+        let mut session = session(false);
+        session.handle_input(press(Pause));
+        for _ in 0..5 {
+            session.update(ms(30));
+            session.handle_input(press(Pause));
+        }
+        assert_eq!(session.screen(), Screen::Paused);
+    }
+
+    #[test]
+    fn test_without_releases_held_moves_and_soft_drop_still_follow_system_repeat() {
+        let mut session = session(false);
+        for _ in 0..3 {
+            session.handle_input(press(MoveLeft));
+            session.handle_input(press(MoveDown));
+            session.update(ms(10));
+        }
+        assert_eq!(piece(&session).x, 0);
+        assert_eq!(piece(&session).y, 8);
+    }
+
+    #[test]
+    fn test_with_releases_quick_taps_all_count() {
+        let mut session = session(true);
+        for _ in 0..2 {
+            session.handle_input(press(RotateClockwise));
+            session.handle_input(release(RotateClockwise));
+        }
+        assert_eq!(piece(&session).facing, Facing::South);
+    }
+
     // --- Pause and help ---
 
     #[test]
@@ -332,6 +405,7 @@ mod tests {
         let mut session = session(false);
         assert_eq!(session.handle_input(press(Pause)), Some(MusicChange::Pause));
         assert_eq!(session.screen(), Screen::Paused);
+        session.update(REPEAT_GAP);
         assert_eq!(
             session.handle_input(press(Pause)),
             Some(MusicChange::Resume)
@@ -344,6 +418,7 @@ mod tests {
         let mut session = session(false);
         assert_eq!(session.handle_input(press(ToggleHelp)), None);
         assert_eq!(session.screen(), Screen::Help(HelpPage::Controls));
+        session.update(REPEAT_GAP);
         assert_eq!(session.handle_input(press(ToggleHelp)), None);
         assert_eq!(session.screen(), Screen::Playing);
     }

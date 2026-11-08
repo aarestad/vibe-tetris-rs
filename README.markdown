@@ -59,8 +59,11 @@ pages, both from the menu and during a game, where play stops until H closes Hel
 Numpad keys are read as digits, so the number row does the same thing.
 
 Auto-Repeat, 20x Soft Drop, and Shift and Ctrl alone need a terminal that reports key releases,
-such as kitty, WezTerm, foot, Ghostty or iTerm2. In other terminals, holding a key uses your
-system's key repeat, and C and Z do what Shift and Ctrl would. While Ctrl is a play key, Ctrl+C
+such as kitty, WezTerm, foot, Ghostty or iTerm2. In other terminals, holding a move or Soft
+Drop key uses your system's key repeat, and C and Z do what Shift and Ctrl would. There, presses
+of a rotation, Hard Drop, Hold, Pause or Help key less than 120 ms apart are taken as your
+system repeating a held key and ignored. The first repeat still counts, so holding one of these
+keys acts at most twice. While Ctrl is a play key, Ctrl+C
 during play acts as C, so use Q to quit a game.
 
 Every play key can be changed in the config file; see `controls` below.
