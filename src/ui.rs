@@ -9,6 +9,7 @@ use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
 use crate::scoring::{SPRINT_LINES, Statistics, scoring_table};
 use crate::screen::{HelpPage, Screen};
 use crate::tetrimino::{Tetrimino, TetriminoType};
+use crate::visual_effects::Highlight;
 use anyhow::Result;
 use ratatui::{
     Frame, Terminal,
@@ -37,6 +38,19 @@ const TABLE_BOX_WIDTH: u16 = 40;
 const MENU_MIN_WIDTH: u16 = TABLE_BOX_WIDTH;
 const MENU_MIN_HEIGHT: u16 = 24;
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
+/// Matrix wall colors for levels 1, 2 and so on, starting over after the last.
+const LEVEL_COLORS: [Color; 8] = [
+    Color::White,
+    Color::Cyan,
+    Color::Green,
+    Color::Yellow,
+    Color::Rgb(255, 140, 0),
+    Color::Red,
+    Color::Magenta,
+    Color::LightBlue,
+];
+/// How long each flash or color of a wall highlight lasts.
+const HIGHLIGHT_STEP: Duration = Duration::from_millis(125);
 /// Locked Down Minos are textured, so they stand apart from the solid Tetrimino in play
 /// (Guideline 13.1.3).
 const LOCKED_MINO: &str = "▓▓";
@@ -558,7 +572,7 @@ impl Renderer {
     fn draw_board(f: &mut Frame, area: Rect, state: &GameState, hide_play: bool) {
         let board_width = state.board.get_width();
         let board_height = state.board.get_height() as i32;
-        let wall_style = Style::default().fg(Color::White);
+        let wall_style = Self::wall_style(state);
 
         let ghost_y = state
             .config
@@ -592,6 +606,30 @@ impl Renderer {
         lines.push(Line::styled(format!("└{border_fill}┘"), wall_style));
 
         f.render_widget(Paragraph::new(lines), area);
+    }
+
+    /// The Matrix walls are the background graphics (Guideline 13.1.4). Their color shows
+    /// the level, they flash in the action's color for a Tetris, T-Spin or Back-to-Back, and
+    /// they run through the level colors for a Level Up.
+    fn wall_style(state: &GameState) -> Style {
+        let level = state.scoring.level as usize;
+        let level_color = |level: usize| LEVEL_COLORS[level.saturating_sub(1) % LEVEL_COLORS.len()];
+        let base = Style::default().fg(level_color(level));
+        let Some((highlight, since)) = state
+            .visual_effects()
+            .and_then(|effects| effects.current_highlight())
+        else {
+            return base;
+        };
+        let step = (since.as_millis() / HIGHLIGHT_STEP.as_millis()) as usize;
+        let color = match highlight {
+            Highlight::LevelUp => level_color(level + step),
+            _ if step % 2 == 1 => return base,
+            Highlight::BackToBack => Color::Yellow,
+            Highlight::TSpin => Self::get_piece_color(TetriminoType::T),
+            Highlight::Tetris => Self::get_piece_color(TetriminoType::I),
+        };
+        Style::default().fg(color).add_modifier(Modifier::BOLD)
     }
 
     fn cell_span(state: &GameState, ghost_y: Option<i32>, x: usize, y: i32) -> Span<'static> {
@@ -1223,6 +1261,57 @@ mod tests {
         assert_eq!(count_right_of_info(&buffer, "█"), 0);
         assert_eq!(count_right_of_info(&buffer, "▓"), 8);
         assert_eq!(count_right_of_info(&buffer, "░"), 0);
+    }
+
+    /// The style of the Matrix's top left corner, which is drawn like the walls.
+    fn wall(state: &GameState) -> Style {
+        let buffer = draw_state(state);
+        let left = (buffer.area.width - 50) / 2 + SIDE_PANEL_WIDTH;
+        let top = (0..buffer.area.height)
+            .find(|&y| buffer[(left, y)].symbol() == "┌")
+            .unwrap();
+        buffer[(left, top)].style()
+    }
+
+    #[test]
+    fn test_wall_color_shows_the_level_and_starts_over_after_the_last_color() {
+        let mut state = state();
+        assert_eq!(wall(&state).fg, Some(Color::White));
+        state.scoring.level = 2;
+        assert_eq!(wall(&state).fg, Some(Color::Cyan));
+        state.scoring.level = LEVEL_COLORS.len() as u32 + 1;
+        assert_eq!(wall(&state).fg, Some(Color::White));
+    }
+
+    #[test]
+    fn test_walls_flash_for_an_action_and_run_through_colors_for_a_level_up() {
+        let mut state = state();
+        state.effects.highlight(Highlight::Tetris);
+        let flash = wall(&state);
+        assert_eq!(flash.fg, Some(Color::Cyan));
+        assert!(flash.add_modifier.contains(Modifier::BOLD));
+        state.effects.tick(HIGHLIGHT_STEP);
+        assert_eq!(wall(&state).fg, Some(Color::White));
+        state.effects.tick(HIGHLIGHT_STEP);
+        assert_eq!(wall(&state).fg, Some(Color::Cyan));
+
+        state.scoring.level = 2;
+        state.effects.highlight(Highlight::LevelUp);
+        assert_eq!(wall(&state).fg, Some(Color::Cyan));
+        state.effects.tick(HIGHLIGHT_STEP);
+        assert_eq!(wall(&state).fg, Some(Color::Green));
+        state.effects.tick(crate::visual_effects::HIGHLIGHT_TIME);
+        assert_eq!(wall(&state).fg, Some(Color::Cyan));
+        assert!(!wall(&state).add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn test_walls_stop_marking_an_event_at_game_over() {
+        let mut state = state();
+        state.effects.highlight(Highlight::TSpin);
+        assert_eq!(wall(&state).fg, Some(Color::Magenta));
+        state.quit();
+        assert_eq!(wall(&state).fg, Some(Color::White));
     }
 
     #[test]

@@ -33,7 +33,9 @@ During play, the mode's name is shown at the top of the score panel. Below the N
 high score for the mode, or your score once it is higher; in Sprint it is the best time.
 
 The Tetrimino in play is drawn solid and Locked Down Minos are textured. A Tetrimino flashes
-white as it Locks Down, and a Hard Drop leaves a fading trail behind it.
+white as it Locks Down, and a Hard Drop leaves a fading trail behind it. The Matrix walls change color with
+each level, flash for a Tetris, T-Spin or Back-to-Back, and run through the level colors at a
+Level Up.
 
 ## Controls
 

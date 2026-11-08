@@ -3,7 +3,7 @@ use crate::config::{GameConfig, GameMode, LockDownMode};
 use crate::scoring::{Scoring, TSpin};
 use crate::sound::SoundEffect;
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
-use crate::visual_effects::VisualEffects;
+use crate::visual_effects::{Highlight, VisualEffects};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
@@ -617,13 +617,28 @@ impl GameState {
         let tspin = animation.tspin;
         let lines = self.board.clear_lines();
         // The rows have moved, so the effects no longer line up with them.
-        self.effects.clear();
+        self.effects.clear_cells();
         self.finish_action(tspin, lines);
     }
 
     /// Completion phase: scores the action, then moves on to the next phase.
     fn finish_action(&mut self, tspin: TSpin, lines: u32) {
         let result = self.scoring.award_action(tspin, lines);
+        // A Level Up matters most, then the rarest action (Guideline 13.1.4).
+        let highlight = if result.level_up && !result.game_complete {
+            Some(Highlight::LevelUp)
+        } else if result.back_to_back {
+            Some(Highlight::BackToBack)
+        } else if tspin == TSpin::Full || (tspin == TSpin::Mini && lines > 0) {
+            Some(Highlight::TSpin)
+        } else if lines == 4 {
+            Some(Highlight::Tetris)
+        } else {
+            None
+        };
+        if let Some(highlight) = highlight {
+            self.effects.highlight(highlight);
+        }
         if let Some(text) = result.notification {
             self.notification = Some((text, NOTIFICATION_TIME));
         }
@@ -1700,6 +1715,42 @@ mod tests {
                 SoundEffect::BackToBack
             ]
         );
+    }
+
+    fn highlight(state: &GameState) -> Option<Highlight> {
+        state
+            .visual_effects()?
+            .current_highlight()
+            .map(|(highlight, _)| highlight)
+    }
+
+    #[test]
+    fn test_walls_mark_a_tetris_a_tspin_and_a_back_to_back() {
+        let mut state = new_state();
+        do_tetris(&mut state);
+        assert_eq!(highlight(&state), Some(Highlight::Tetris));
+        state.board = Board::new(10, 20);
+        do_tspin_double(&mut state);
+        assert_eq!(highlight(&state), Some(Highlight::BackToBack));
+
+        let mut state = new_state();
+        do_tspin_double(&mut state);
+        assert_eq!(highlight(&state), Some(Highlight::TSpin));
+    }
+
+    #[test]
+    fn test_walls_mark_a_level_up_over_the_action_but_not_a_plain_line_clear() {
+        let mut state = new_state();
+        state.scoring.lines_until_next_level = 4;
+        do_tetris(&mut state);
+        assert_eq!(highlight(&state), Some(Highlight::LevelUp));
+
+        let mut state = new_state();
+        fill_row_except(&mut state, 19, &[0]);
+        state.phase = Phase::Falling(piece(TetriminoType::I, -2, 10, Facing::East));
+        state.hard_drop();
+        state.complete_line_clear();
+        assert_eq!(highlight(&state), None);
     }
 
     #[test]

@@ -6,14 +6,28 @@ use std::time::Duration;
 pub const LOCK_FLASH_TIME: Duration = Duration::from_millis(150);
 /// How long a Hard Drop trail takes to fade (Guideline 13.1.2).
 pub const HARD_DROP_TRAIL_TIME: Duration = Duration::from_millis(200);
+/// How long the Matrix walls mark a Level Up or an impressive action (Guideline 13.1.4).
+pub const HIGHLIGHT_TIME: Duration = Duration::from_millis(1000);
 
-/// Short effects that follow a Lock Down: the locked Minos flash, and a Hard Drop leaves a
-/// trail that shrinks down toward where the Tetrimino landed. They only change how cells are
-/// drawn, never the game.
+/// An event the Matrix walls mark, so it is clear without distracting from play
+/// (Guideline 13.1.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Highlight {
+    LevelUp,
+    BackToBack,
+    TSpin,
+    Tetris,
+}
+
+/// Short effects that follow a Lock Down: the locked Minos flash, a Hard Drop leaves a trail
+/// that shrinks down toward where the Tetrimino landed, and the walls mark a Level Up or an
+/// impressive action. They only change how things are drawn, never the game.
 #[derive(Debug, Clone, Default)]
 pub struct VisualEffects {
     lock_flash: Option<LockFlash>,
     trail: Option<Trail>,
+    /// The event the walls are marking, and how long they have been marking it.
+    highlight: Option<(Highlight, Duration)>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,8 +88,24 @@ impl VisualEffects {
         });
     }
 
+    /// Starts the walls marking an event, replacing any event they were marking.
+    pub fn highlight(&mut self, highlight: Highlight) {
+        self.highlight = Some((highlight, Duration::ZERO));
+    }
+
+    /// The event the walls are marking and how long ago it happened, if any.
+    pub fn current_highlight(&self) -> Option<(Highlight, Duration)> {
+        self.highlight
+    }
+
     /// Advances the effects, ending any whose time is up.
     pub fn tick(&mut self, dt: Duration) {
+        if let Some((_, elapsed)) = &mut self.highlight {
+            *elapsed += dt;
+            if *elapsed >= HIGHLIGHT_TIME {
+                self.highlight = None;
+            }
+        }
         if let Some(flash) = &mut self.lock_flash {
             flash.remaining = flash.remaining.saturating_sub(dt);
             if flash.remaining.is_zero() {
@@ -90,9 +120,11 @@ impl VisualEffects {
         }
     }
 
-    /// Ends every effect, for when the cells they cover move, as after a Line Clear.
-    pub fn clear(&mut self) {
-        *self = Self::default();
+    /// Ends the effects drawn on cells, for when the cells move, as after a Line Clear. The
+    /// walls keep marking any event.
+    pub fn clear_cells(&mut self) {
+        self.lock_flash = None;
+        self.trail = None;
     }
 
     /// Whether a cell is a Mino still flashing from its Lock Down.
@@ -193,15 +225,37 @@ mod tests {
     }
 
     #[test]
-    fn test_a_drop_of_no_rows_leaves_no_trail_and_clear_ends_everything() {
+    fn test_a_drop_of_no_rows_leaves_no_trail_and_clear_cells_ends_the_cell_effects() {
         let mut effects = VisualEffects::default();
         effects.hard_drop(&landed_t(), 0);
         assert!(trail_cells(&effects).is_empty());
 
         effects.hard_drop(&landed_t(), 2);
         effects.lock_down(&landed_t());
-        effects.clear();
+        effects.highlight(Highlight::Tetris);
+        effects.clear_cells();
         assert!(trail_cells(&effects).is_empty());
         assert!(!effects.is_flashing(4, 18));
+        assert!(effects.current_highlight().is_some());
+    }
+
+    #[test]
+    fn test_highlight_lasts_its_time_and_a_new_one_starts_over() {
+        let mut effects = VisualEffects::default();
+        effects.highlight(Highlight::TSpin);
+        effects.tick(Duration::from_millis(400));
+        assert_eq!(
+            effects.current_highlight(),
+            Some((Highlight::TSpin, Duration::from_millis(400)))
+        );
+        effects.highlight(Highlight::LevelUp);
+        assert_eq!(
+            effects.current_highlight(),
+            Some((Highlight::LevelUp, Duration::ZERO))
+        );
+        effects.tick(HIGHLIGHT_TIME - Duration::from_millis(1));
+        assert!(effects.current_highlight().is_some());
+        effects.tick(Duration::from_millis(1));
+        assert_eq!(effects.current_highlight(), None);
     }
 }
