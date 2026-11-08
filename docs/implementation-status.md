@@ -14,7 +14,7 @@ What remains:
 
 One risk still needs your decision: the Guideline PDF, which is marked CONFIDENTIAL, and its extracted text are removed from `main`. They remain in the public GitHub repo's history.
 
-This report describes `main` at commit `a9c13e2`, which ignores system key repeat for one-shot keys on basic terminals. It passes lint and all 417 tests locally and in CI on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
+This report describes `main` at commit `615559b`, which adds the scoring demonstration. It passes lint and all 426 tests locally and in CI on Linux and macOS. Peter has listened to the music and confirmed that held keys work in Ghostty, and that the sound effects sound good.
 
 ## Current state
 
@@ -47,7 +47,7 @@ The code is a 13,053-line, single-player Rust terminal game on `main`, built on 
 
 - **Tests:** `cargo test` passes all 426 tests: 382 in the library, 39 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
-- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `a9c13e2`, passed lint and all 417 tests on both.
+- **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `615559b`, passed lint and all 426 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
 - **Docs:** the README covers the menu, its three modes, the Options page, the Game Over statistics, the High Score Table, End Rewards and Help, running, controls and configuration, including the sound and mode settings, and `AGENTS.md` matches the code.
 
