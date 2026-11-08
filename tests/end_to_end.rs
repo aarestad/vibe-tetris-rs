@@ -565,7 +565,7 @@ fn test_config_file_sets_the_menu_starting_choices() {
 #[test]
 fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
     let terminal = Terminal::start_at_menu();
-    for _ in 0..3 {
+    for _ in 0..4 {
         terminal.send(UP);
     }
     terminal.wait_for_text("> Options");
@@ -608,10 +608,30 @@ fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
 }
 
 #[test]
-fn test_menu_help_opens_and_goes_back() {
+fn test_scoring_demo_plays_each_action_and_goes_back() {
     let terminal = Terminal::start_at_menu();
     terminal.send(UP);
     terminal.send(UP);
+    terminal.wait_for_text("> Scoring Demo");
+    terminal.send(ENTER);
+    terminal.wait_for_text("SCORING DEMO");
+    terminal.wait_for_text("1 of 13");
+    terminal.wait_for_text("100 x Level");
+    terminal.wait_for_text("+100 points");
+    terminal.send(RIGHT);
+    terminal.wait_for_text("2 of 13");
+    terminal.wait_for_text("Double");
+
+    terminal.send("\x1b");
+    terminal.wait_for_text("> Scoring Demo");
+}
+
+#[test]
+fn test_menu_help_opens_and_goes_back() {
+    let terminal = Terminal::start_at_menu();
+    for _ in 0..3 {
+        terminal.send(UP);
+    }
     terminal.wait_for_text("> Help");
     terminal.send(ENTER);
     terminal.wait_for_text("CONTROLS");

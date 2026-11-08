@@ -64,6 +64,11 @@ impl Session {
         &self.state
     }
 
+    /// The game itself, for the scoring demonstration to set up its scenes.
+    pub(crate) fn state_mut(&mut self) -> &mut GameState {
+        &mut self.state
+    }
+
     pub fn screen(&self) -> Screen {
         self.screen
     }

@@ -2,6 +2,7 @@ pub mod audio;
 pub mod board;
 pub mod config;
 pub mod controls;
+pub mod demo;
 pub mod end_reward;
 pub mod game;
 pub mod game_state;

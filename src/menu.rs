@@ -41,12 +41,14 @@ pub enum MenuItem {
     HighScores,
     Options,
     Help,
+    /// Shows every point-scoring action on the real engine (Guideline 8).
+    ScoringDemo,
     Quit,
 }
 
 impl MenuItem {
     /// All items in the order shown.
-    pub const ALL: [MenuItem; 9] = [
+    pub const ALL: [MenuItem; 10] = [
         MenuItem::NewGame,
         MenuItem::GameMode,
         MenuItem::StartingLevel,
@@ -55,6 +57,7 @@ impl MenuItem {
         MenuItem::HighScores,
         MenuItem::Options,
         MenuItem::Help,
+        MenuItem::ScoringDemo,
         MenuItem::Quit,
     ];
 }
@@ -104,6 +107,8 @@ pub enum MenuPage {
 pub enum MenuResult {
     Stay,
     StartGame,
+    /// Start the scoring demonstration.
+    StartDemo,
     /// An option changed, so the settings should be saved.
     OptionsChanged,
     Exit,
@@ -312,6 +317,7 @@ impl Menu {
                 self.selected_option = 0;
             }
             MenuItem::Help => self.page = MenuPage::Help(HelpPage::default()),
+            MenuItem::ScoringDemo => return MenuResult::StartDemo,
             MenuItem::Quit => return MenuResult::Exit,
         }
         MenuResult::Stay
@@ -341,6 +347,7 @@ impl Menu {
             | MenuItem::HighScores
             | MenuItem::Options
             | MenuItem::Help
+            | MenuItem::ScoringDemo
             | MenuItem::Quit => {}
         }
     }
@@ -516,6 +523,15 @@ mod tests {
     #[test]
     fn test_new_game_starts_a_game() {
         assert_eq!(menu().handle_input(Select), MenuResult::StartGame);
+    }
+
+    #[test]
+    fn test_scoring_demo_item_starts_the_demo_and_left_or_right_do_nothing() {
+        let mut menu = menu_on(MenuItem::ScoringDemo);
+        for input in [Left, Right] {
+            assert_eq!(menu.handle_input(input), MenuResult::Stay);
+        }
+        assert_eq!(menu.handle_input(Select), MenuResult::StartDemo);
     }
 
     #[test]

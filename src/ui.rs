@@ -1,6 +1,7 @@
 use crate::config::GameMode;
 use crate::config::LockDownMode;
 use crate::controls::Controls;
+use crate::demo::{Demo, SCENES};
 use crate::end_reward::EndReward;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use crate::high_scores::{HighScore, HighScores, NAME_MAX_LEN, TABLE_SIZE};
@@ -49,6 +50,8 @@ const LEVEL_COLORS: [Color; 8] = [
     Color::Magenta,
     Color::LightBlue,
 ];
+/// The width of the scoring demonstration's panel beside the Matrix.
+const DEMO_PANEL_WIDTH: u16 = 28;
 /// How long each flash or color of a wall highlight lasts.
 const HIGHLIGHT_STEP: Duration = Duration::from_millis(125);
 /// Locked Down Minos are textured, so they stand apart from the solid Tetrimino in play
@@ -198,6 +201,7 @@ impl Renderer {
                     MenuItem::HighScores => "High Scores".to_string(),
                     MenuItem::Options => "Options".to_string(),
                     MenuItem::Help => "Help".to_string(),
+                    MenuItem::ScoringDemo => "Scoring Demo".to_string(),
                     MenuItem::Quit => "Quit".to_string(),
                 };
                 Self::menu_line(text, item == menu.selected_item())
@@ -889,6 +893,97 @@ impl Renderer {
         lines
     }
 
+    pub fn render_demo(&mut self, demo: &Demo) -> Result<()> {
+        self.terminal.draw(|f| Self::draw_demo(f, demo))?;
+        Ok(())
+    }
+
+    /// The scoring demonstration: the Matrix where the scene plays, and beside it the
+    /// action's name, what it is, its points and, once done, what it scored (Guideline 8).
+    fn draw_demo(f: &mut Frame, demo: &Demo) {
+        let state = demo.state();
+        let (_, height) = Self::required_size(state);
+        let board_width = state.board.get_width() as u16 * CELL_WIDTH as u16 + 2;
+        let width = board_width + DEMO_PANEL_WIDTH;
+        let area = f.area();
+        if area.width < width || area.height < height {
+            Self::draw_size_message(f, width, height);
+            return;
+        }
+        let area = Rect {
+            x: area.x + (area.width - width) / 2,
+            y: area.y + (area.height - height) / 2,
+            width,
+            height,
+        };
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(board_width), Constraint::Min(0)])
+            .split(area);
+        Self::draw_board(f, chunks[0], state, false);
+
+        let paragraph = Paragraph::new(Self::demo_lines(demo))
+            .wrap(Wrap { trim: true })
+            .block(Self::panel().title(" SCORING DEMO "));
+        f.render_widget(paragraph, chunks[1]);
+    }
+
+    fn demo_lines(demo: &Demo) -> Vec<Line<'static>> {
+        let scene = demo.scene();
+        let highlight = Style::default()
+            .fg(HIGHLIGHT_COLOR)
+            .add_modifier(Modifier::BOLD);
+        let mut lines = vec![
+            Line::styled(
+                format!("{} of {}", demo.index() + 1, SCENES.len()),
+                Style::default().fg(Color::Gray),
+            ),
+            Line::from(""),
+            Line::styled(scene.name, highlight),
+            Line::from(scene.description),
+            Line::from(""),
+            Line::from(vec![Self::label_span("Points: "), Span::raw(scene.points)]),
+        ];
+        if let Some(result) = demo.result() {
+            let earned = Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD);
+            lines.push(Line::from(""));
+            if let Some(text) = demo.state().notification_text()
+                && text != scene.name
+            {
+                lines.push(Line::styled(text.to_string(), highlight));
+            }
+            if result.action_points > 0 {
+                lines.push(Line::styled(
+                    format!("+{} points", result.action_points),
+                    earned,
+                ));
+            }
+            if result.drop_points > 0 {
+                let style = if result.action_points > 0 {
+                    Style::default()
+                } else {
+                    earned
+                };
+                lines.push(Line::styled(
+                    format!("+{} for drops", result.drop_points),
+                    style,
+                ));
+            }
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::styled(
+            "← → scene   Esc back",
+            Style::default().fg(Color::Gray),
+        ));
+        lines
+    }
+
+    fn label_span(text: &'static str) -> Span<'static> {
+        Span::styled(text, Style::default().fg(LABEL_COLOR))
+    }
+
     /// Hides play and shows "PAUSED" (Guideline 13.1.6).
     fn draw_pause_screen(f: &mut Frame, state: &GameState, best: Option<&HighScore>) {
         Self::draw_game(f, state, true, best);
@@ -1574,6 +1669,37 @@ mod tests {
     }
 
     #[test]
+    fn test_scoring_demo_shows_the_scene_and_then_what_it_scored() {
+        let config = GameConfig {
+            enable_sound: false,
+            ..GameConfig::default()
+        };
+        let mut demo = Demo::new(&config);
+        let screen = text(&draw(50, 24, |f| Renderer::draw_demo(f, &demo)));
+        for label in [
+            "SCORING DEMO",
+            "1 of 13",
+            "Single",
+            "1 line of Blocks",
+            "100 x Level",
+        ] {
+            assert!(screen.contains(label), "{label}:\n{screen}");
+        }
+        assert!(!screen.contains("points"), "{screen}");
+
+        while demo.result().is_none() {
+            demo.update(&config, Duration::from_millis(16));
+        }
+        let screen = text(&draw(50, 24, |f| Renderer::draw_demo(f, &demo)));
+        assert!(screen.contains("+100 points"), "{screen}");
+        assert!(screen.contains("for drops"), "{screen}");
+        assert!(screen.contains("Esc back"), "{screen}");
+
+        let small = text(&draw(49, 24, |f| Renderer::draw_demo(f, &demo)));
+        assert!(!small.contains("SCORING DEMO"), "{small}");
+    }
+
+    #[test]
     fn test_main_menu_lists_options() {
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
             Renderer::draw_menu(f, &menu(), &HighScores::default())
@@ -1584,8 +1710,9 @@ mod tests {
     #[test]
     fn test_menu_help_page_shows_controls_and_how_to_leave() {
         let mut menu = menu();
-        menu.handle_input(MenuInput::Up);
-        menu.handle_input(MenuInput::Up);
+        while menu.selected_item() != MenuItem::Help {
+            menu.handle_input(MenuInput::Up);
+        }
         menu.handle_input(MenuInput::Select);
         let screen = text(&draw(WIDTH, HEIGHT, |f| {
             Renderer::draw_menu(f, &menu, &HighScores::default())
@@ -1604,8 +1731,9 @@ mod tests {
             }))
         };
         assert!(fits(&menu).contains("Enter to choose"));
-        menu.handle_input(MenuInput::Up);
-        menu.handle_input(MenuInput::Up);
+        while menu.selected_item() != MenuItem::Help {
+            menu.handle_input(MenuInput::Up);
+        }
         menu.handle_input(MenuInput::Select);
         assert!(fits(&menu).contains("Esc to go back"));
 
@@ -2147,8 +2275,9 @@ mod help_tests {
     #[test]
     fn test_every_help_page_fits_on_the_menu_at_its_minimum_size() {
         let mut menu = Menu::new(&GameConfig::default());
-        menu.handle_input(MenuInput::Up);
-        menu.handle_input(MenuInput::Up);
+        while menu.selected_item() != MenuItem::Help {
+            menu.handle_input(MenuInput::Up);
+        }
         menu.handle_input(MenuInput::Select);
         for page in HelpPage::ALL {
             assert_eq!(menu.page(), MenuPage::Help(page));

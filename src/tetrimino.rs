@@ -9,6 +9,19 @@ pub enum TetriminoType {
     L,
 }
 
+impl TetriminoType {
+    /// All seven Tetriminos.
+    pub const ALL: [TetriminoType; 7] = [
+        TetriminoType::I,
+        TetriminoType::O,
+        TetriminoType::T,
+        TetriminoType::S,
+        TetriminoType::Z,
+        TetriminoType::J,
+        TetriminoType::L,
+    ];
+}
+
 /// The direction a Tetrimino points, turned by rotating (Guideline A1.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Facing {

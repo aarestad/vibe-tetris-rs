@@ -70,6 +70,9 @@ impl Statistics {
 /// Score, level and Goal for one game (Guideline 6 and 8).
 pub struct Scoring {
     pub score: u64,
+    /// The part of the score from Soft and Hard Drops, so the scoring demonstration can show
+    /// an action's points apart from the drop that placed it.
+    pub drop_points: u64,
     pub level: u32,
     pub lines_cleared: u32,
     pub statistics: Statistics,
@@ -86,6 +89,7 @@ impl Scoring {
     pub fn new(config: &GameConfig) -> Self {
         let mut scoring = Self {
             score: 0,
+            drop_points: 0,
             level: config.starting_level,
             lines_cleared: 0,
             statistics: Statistics::default(),
@@ -103,11 +107,13 @@ impl Scoring {
     /// Awards 1 point per Soft Dropped row, independent of level (Guideline 8).
     pub fn add_soft_drop(&mut self, rows: u64) {
         self.score += rows;
+        self.drop_points += rows;
     }
 
     /// Awards 2 points per Hard Dropped row, independent of level (Guideline 8).
     pub fn add_hard_drop(&mut self, rows: u64) {
         self.score += 2 * rows;
+        self.drop_points += 2 * rows;
     }
 
     /// Scores the result of a Lock Down, and updates Back-to-Back and the Goal.
@@ -348,12 +354,15 @@ mod tests {
     }
 
     #[test]
-    fn test_drop_points_ignore_level() {
+    fn test_drop_points_ignore_level_and_are_counted_apart_from_actions() {
         let mut scoring = scoring();
         scoring.level = 7;
         scoring.add_soft_drop(3);
         scoring.add_hard_drop(5);
         assert_eq!(scoring.score, 13);
+        assert_eq!(scoring.drop_points, 13);
+        scoring.award_action(TSpin::None, 1);
+        assert_eq!(scoring.drop_points, 13);
     }
 
     #[test]

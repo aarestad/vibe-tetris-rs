@@ -8,7 +8,12 @@ Background music is converted at build time and needs `timidity`; without it, th
 with no music.
 
 The game opens on the Main Menu, where you can start a game, choose the mode, starting level, goal
-system and rows of Starting Blocks, change options, see the high scores, read the controls or quit.
+system and rows of Starting Blocks, change options, see the high scores, read the controls, watch
+the Scoring Demo or quit.
+
+The Scoring Demo plays each point-scoring action, from a Single to a T-Spin Triple, plus
+Back-to-Back, Soft Drop and Hard Drop, and shows what each one scores. Left and Right change
+scenes, and Esc goes back to the menu.
 
 At Game Over, the screen shows your result and statistics: Singles, Doubles, Triples, Tetrises,
 T-Spins, Tetriminos placed and lines per minute. A game that makes the top 10 of its mode's High

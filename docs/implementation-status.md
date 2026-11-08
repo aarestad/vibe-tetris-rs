@@ -4,7 +4,7 @@ Nov 6, 2026, updated Nov 7, 2026 · @Peter Aarestad
 
 ## Summary
 
-tetris-rs now plays as Guideline Tetris: of 37 Guideline areas, 33 are met, 3 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
+tetris-rs now plays as Guideline Tetris: of 38 Guideline areas, 34 are met, 3 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
 
 What remains:
 
@@ -18,21 +18,21 @@ This report describes `main` at commit `a9c13e2`, which ignores system key repea
 
 ## Current state
 
-The code is a 12,305-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
+The code is a 13,053-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
 
 | Module | Lines (with tests) | Tests | Responsibility |
 | --- | --- | --- | --- |
 | `src/game_state.rs` | 2,056 | 90 | Phases, generation, gravity, Lock Down, Hold, T-Spin recognition, seedable bag, Starting Blocks, sound and visual effect events |
-| `src/ui.rs` | 2,310 | 57 | ratatui rendering: menu, Options and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash, Hard Drop trail and level-colored walls, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
-| `tests/end_to_end.rs` | 1,063 | 38 | Runs the real binary in a pseudo-terminal and reads its screen |
-| `src/menu.rs` | 935 | 33 | Main Menu choices, the Options page and the High Scores page, with no terminal |
-| `src/scoring.rs` | 651 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
-| `src/session.rs` | 672 | 31 | Input and time handling for one game, with no terminal or sound, including the repeat guard |
+| `src/ui.rs` | 2,439 | 58 | ratatui rendering: menu, Options and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash, Hard Drop trail and level-colored walls, the scoring demonstration, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
+| `tests/end_to_end.rs` | 1,083 | 39 | Runs the real binary in a pseudo-terminal and reads its screen |
+| `src/menu.rs` | 951 | 34 | Main Menu choices, the Options page and the High Scores page, with no terminal |
+| `src/scoring.rs` | 660 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
+| `src/session.rs` | 677 | 31 | Input and time handling for one game, with no terminal or sound, including the repeat guard |
 | `src/input.rs` | 724 | 25 | Play keys through the bindings, Shift and Ctrl alone, menu and name entry keys, key press and release events, Auto-Repeat, and guessing system key repeat |
 | `src/high_scores.rs` | 516 | 13 | High Score Table per variant, ranking, saving and loading, name entry |
 | `src/board.rs` | 494 | 38 | Matrix and Buffer Zone storage, collision, Line Clear |
-| `src/tetrimino.rs` | 352 | 11 | Facings, Tetrimino shapes, generation position, Super Rotation tables |
-| `src/game.rs` | 368 | 0 | Connects the menu and each game to the real terminal and sound device, reports Shift and Ctrl during play, sets the volumes, and saves options and high scores |
+| `src/tetrimino.rs` | 365 | 11 | Facings, Tetrimino shapes, generation position, Super Rotation tables |
+| `src/game.rs` | 401 | 0 | Connects the menu and each game to the real terminal and sound device, reports Shift and Ctrl during play, runs the scoring demonstration, sets the volumes, and saves options and high scores |
 | `tests/skilled_play.rs` | 266 | 4 | A bot plays seeded Marathons, Sprints and Ultras through real key events |
 | `src/config.rs` | 374 | 12 | JSON config with defaults, validation and saving, including the game mode, Starting Blocks, volumes and controls |
 | `src/controls.rs` | 368 | 7 | Key bindings for each play action, key names for the config file, and their checks |
@@ -40,11 +40,12 @@ The code is a 12,305-line, single-player Rust terminal game on `main`, built on 
 | `src/sound.rs` | 224 | 7 | Sound effects as synthesized notes, rendered to samples |
 | `tests/random_play.rs` | 112 | 1 | Seeded random key events in all game, Lock Down, goal and input modes, with 0 to 10 rows of Starting Blocks |
 | `src/visual_effects.rs` | 261 | 5 | Lock Down flash, Hard Drop trail and wall highlight timing and cells |
+| `src/demo.rs` | 522 | 6 | The scoring demonstration: 13 scripted scenes on the real engine, one per point-scoring action |
 | `src/end_reward.rs` | 95 | 2 | Which games earn an End Reward, its message and how many fireworks |
 | `src/screen.rs` | 143 | 7 | Playing, Paused and Help screens, the Help pages and the keys that switch them |
 | `build.rs` | 39 | 0 | Converts the Korobeiniki MIDI to WAV with `timidity` |
 
-- **Tests:** `cargo test` passes all 417 tests: 374 in the library, 38 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
+- **Tests:** `cargo test` passes all 426 tests: 382 in the library, 39 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
 - **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `a9c13e2`, passed lint and all 417 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
@@ -77,6 +78,7 @@ The code is a 12,305-line, single-player Rust terminal game on `main`, built on 
 | Fall Speed | 7 | Met | Uses the Guideline formula and follows the current level. | `src/game_state.rs:28` |
 | Line Clear scoring | 8 | Met | 100, 300, 500 and 800 x Level. | `src/scoring.rs:174` |
 | Soft and Hard Drop points | 8 | Met | 1 per Soft Dropped row and 2 per Hard Dropped row, independent of level. | `src/scoring.rs:67` |
+| Scoring demonstration | 8 | Met | Scoring Demo on the Main Menu plays every action in the scoring table, plus Back-to-Back, Soft Drop and Hard Drop, as scripted scenes on the real engine. Each scene shows the action's name, description and points, then what it scored, with drop points apart. Left and Right change scenes. Tests check that every scene scores what the table says. | `src/demo.rs:47` |
 | T-Spin recognition | 9 | Met | Checks last move, corner cells by Sides A to D, and Point 5. | `src/game_state.rs:609` |
 | T-Spin scoring | 8 | Met | Table totals for all six T-Spin actions, including no-clear T-Spins. | `src/scoring.rs:174` |
 | Back-to-Back | 8.1 | Met | The 0.5 x bonus and sequence rules reproduce the Guideline's 5,400-point example. | `src/scoring.rs:72` |
@@ -87,7 +89,7 @@ The code is a 12,305-line, single-player Rust terminal game on `main`, built on 
 | Visual effects | 13.1 | Met | Line Clear effects scale with count, and action notifications show outside the Matrix. A Tetrimino flashes white when it Locks Down, a Hard Drop leaves a dim trail that shrinks toward where it landed, and locked Minos are drawn textured (▓) so they stand apart from the solid Tetrimino in play. The Matrix walls are the background graphics: their color shows the level, they flash in the action's color for a Tetris, T-Spin or Back-to-Back, and they run through the level colors for a Level Up. | `src/visual_effects.rs:1` |
 | Sound effects | 13.2 | Met | All six required effects plus Soft and Hard Drop, Hold, each Line Clear size, T-Spins, Back-to-Back, Level Up and blocked moves, synthesized in code. Peter has listened to them. | `src/sound.rs:13` |
 | Background music | 2.5.5, 13.3 | Met | Korobeiniki is embedded in the binary as the default and only track, and loops during each game, restarting from the beginning. It can be turned off, and its volume set from 0 to 10, on the Options page. Extra tracks are optional and not included. | `src/audio.rs:10` |
-| Main Menu and game flow | 2, 2.3 | Partial | Opens on a menu with New Game, mode (Marathon, Sprint or Ultra), starting level, goal system, Starting Blocks (0 to 10 rows of random Minos, each row with a gap), Options, Help and Quit, and Game Over returns to it. High Scores opens the High Score Table. No player count. | `src/menu.rs:135` |
+| Main Menu and game flow | 2, 2.3 | Partial | Opens on a menu with New Game, mode (Marathon, Sprint or Ultra), starting level, goal system, Starting Blocks (0 to 10 rows of random Minos, each row with a gap), Options, Help, Scoring Demo and Quit, and Game Over returns to it. High Scores opens the High Score Table. No player count. | `src/menu.rs:135` |
 | Options | 2.5 | Met | An Options page sets the Next Queue size, Hold, Ghost Piece, Lock Down mode, music and sound effects and their volumes, and saves each change to the config file. Changing the effects volume plays a sample effect. Mode, starting level, goal system and Starting Blocks are chosen on the Main Menu and not saved. | `src/menu.rs:114` |
 | Help | 2.6 | Met | Three pages, turned with Left and Right: controls, how to play, and scoring. How to play covers the Matrix, Line Clears, Goal and Level Up, Hold, the Ghost Piece, Game Over and the variants, in Guideline terms. Scoring lists every action's points, taken from the scoring code, plus Back-to-Back and drop points. H opens it during play and stops play, and the menu's Help shows the same pages. No credits page, which the Guideline mentions only as common. | `src/ui.rs:631` |
 | Variants | 12 | Met | Marathon ends after level 15. Sprint ends at 40 lines and Ultra after three minutes, with no Level Up in either. Both show the time to the hundredth. | `src/config.rs:22` |
@@ -138,7 +140,7 @@ The structural cleanups from the earlier review are done: `Phase`, `Screen`, `Se
 
 ## Features to implement
 
-The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping, and the repeat guard for basic terminals. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
+The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, the wall highlights, Shift and Ctrl, key remapping, the repeat guard for basic terminals, and the scoring demonstration. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
 
 ### 1. Decision to confirm
 
@@ -158,6 +160,5 @@ The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |
 | Multiplayer and Line Attacks | B | L | Local split screen needs a wide terminal, and networking adds more. Do this last, if at all. |
-| In-app scoring demonstration | 8 | M | The Guideline requires a demo of all scoring actions. It is a useful tutorial here. |
 
 I left out the legal screen, logo rules and naming rules in sections 2.1, 2.2 and 12, because they are licensing requirements rather than gameplay.

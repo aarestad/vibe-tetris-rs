@@ -1,10 +1,11 @@
 use crate::audio::{AudioPlayer, THEME};
 use crate::config::GameConfig;
+use crate::demo::Demo;
 use crate::end_reward::EndReward;
 use crate::game_state::GameState;
 use crate::high_scores::{HighScore, HighScores, NameEntry, NameEntryResult, TextInput};
 use crate::input::InputHandler;
-use crate::menu::{Menu, MenuResult, OptionItem};
+use crate::menu::{Menu, MenuInput, MenuResult, OptionItem};
 use crate::session::{MusicChange, Session};
 use crate::sound::SoundEffect;
 use crate::ui::{GameOverView, Renderer};
@@ -99,11 +100,43 @@ impl Game {
                 match self.menu.handle_input(input) {
                     MenuResult::Stay => {}
                     MenuResult::StartGame => return Ok(true),
+                    MenuResult::StartDemo => {
+                        if self.run_demo()? {
+                            return Ok(false);
+                        }
+                    }
                     MenuResult::OptionsChanged => self.save_options(),
                     MenuResult::Exit => return Ok(false),
                 }
             }
             self.renderer.render_menu(&self.menu, &self.scores)?;
+            std::thread::sleep(FRAME_DURATION);
+        }
+    }
+
+    /// Plays the scoring demonstration until the player leaves it. Returns true if the
+    /// player wants to leave the program.
+    fn run_demo(&mut self) -> Result<bool> {
+        let mut demo = Demo::new(&self.config);
+        let mut last_tick = Instant::now();
+        loop {
+            while let Some(input) = self.input.poll_menu_input() {
+                if input == MenuInput::Quit {
+                    return Ok(true);
+                }
+                if !demo.handle_input(&self.config, input) {
+                    return Ok(false);
+                }
+            }
+            let now = Instant::now();
+            demo.update(&self.config, now.duration_since(last_tick));
+            last_tick = now;
+            for effect in demo.take_sound_effects() {
+                if self.config.enable_sound_effects {
+                    self.audio.play_effect(effect);
+                }
+            }
+            self.renderer.render_demo(&demo)?;
             std::thread::sleep(FRAME_DURATION);
         }
     }

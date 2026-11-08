@@ -131,6 +131,7 @@ src/
 ├── main.rs          # Entry point and application setup
 ├── lib.rs           # Module declarations
 ├── audio.rs         # Audio handling
+├── demo.rs          # Scoring demonstration: scripted scenes on the real engine
 ├── end_reward.rs    # End Rewards: which games earn a message and fireworks
 ├── game.rs          # Connects a session to the real terminal and sound device
 ├── game_state.rs    # Phases, movement, Lock Down, Hold and T-Spin recognition
