@@ -199,10 +199,6 @@ impl GameState {
         &self.board
     }
 
-    pub fn held_piece(&self) -> Option<TetriminoType> {
-        self.held_piece
-    }
-
     pub fn next_pieces(&self) -> &[TetriminoType] {
         &self.next_pieces
     }

@@ -372,8 +372,15 @@ impl Terminal {
     }
 }
 
+/// Quits with Ctrl+C before killing the program, so a coverage run records what the test ran.
+/// A killed process never writes its coverage data.
 impl Drop for Terminal {
     fn drop(&mut self) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while self.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+            self.send(CTRL_C);
+            thread::sleep(Duration::from_millis(50));
+        }
         self.child.kill().ok();
         self.child.wait().ok();
     }
