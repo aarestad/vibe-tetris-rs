@@ -144,6 +144,7 @@ src/
 ├── input.rs         # Keyboard input processing
 ├── menu.rs          # Main Menu choices, with no terminal
 ├── ui.rs            # Terminal rendering and display
+├── visual_effects.rs # Lock Down flash and Hard Drop trail
 └── config.rs        # Game configuration and file I/O
 ```
 

@@ -13,3 +13,4 @@ pub mod session;
 pub mod sound;
 pub mod tetrimino;
 pub mod ui;
+pub mod visual_effects;

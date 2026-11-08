@@ -218,8 +218,10 @@ impl Terminal {
         self.blocks()
     }
 
-    /// Filled cells in the play area as (column, row). A Ghost Piece does not count. Rows are
-    /// numbered without the Skyline border, so a Tetrimino across it has no gap in its rows.
+    /// Filled cells in the play area as (column, row): the Tetrimino in play, drawn solid,
+    /// and Locked Down Minos, drawn textured. A Ghost Piece and a Hard Drop trail do not
+    /// count. Rows are numbered without the Skyline border, so a Tetrimino across it has no
+    /// gap in its rows.
     fn blocks(&self) -> Vec<(u16, u16)> {
         let parser = self.parser.lock().unwrap();
         let screen = parser.screen();
@@ -228,7 +230,7 @@ impl Terminal {
             for row in rows {
                 for column in 0..MATRIX_COLUMNS {
                     let cell = screen.cell(row, MATRIX_LEFT + column * 2);
-                    if cell.is_some_and(|cell| cell.contents() == "█") {
+                    if cell.is_some_and(|cell| matches!(cell.contents(), "█" | "▓")) {
                         let play_row = if row > SKYLINE_ROW { row - 1 } else { row };
                         blocks.push((column, play_row));
                     }

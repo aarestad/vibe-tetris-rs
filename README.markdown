@@ -32,6 +32,9 @@ There are three modes:
 During play, the mode's name is shown at the top of the score panel. Below the Next Queue is the
 high score for the mode, or your score once it is higher; in Sprint it is the best time.
 
+The Tetrimino in play is drawn solid and Locked Down Minos are textured. A Tetrimino flashes
+white as it Locks Down, and a Hard Drop leaves a fading trail behind it.
+
 ## Controls
 
 | Action | Keys |

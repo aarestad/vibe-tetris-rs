@@ -35,6 +35,9 @@ const TABLE_BOX_WIDTH: u16 = 40;
 const MENU_MIN_WIDTH: u16 = TABLE_BOX_WIDTH;
 const MENU_MIN_HEIGHT: u16 = 24;
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
+/// Locked Down Minos are textured, so they stand apart from the solid Tetrimino in play
+/// (Guideline 13.1.3).
+const LOCKED_MINO: &str = "▓▓";
 /// Rows of the high score box under the Next Queue: its value between two borders.
 const HIGH_SCORE_BOX_HEIGHT: u16 = 3;
 /// Seconds from a firework's launch until it fades out.
@@ -60,6 +63,15 @@ const SPARK_DIRECTIONS: [(f64, f64); 8] = [
 ];
 
 /// What the Game Over screen shows besides the game's result.
+/// What a Matrix cell holds, in drawing order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cell {
+    Empty,
+    Ghost(TetriminoType),
+    InPlay(TetriminoType),
+    Locked(TetriminoType),
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GameOverView<'a> {
     /// A result that made the High Score Table: its place from 0 and the name typed so far.
@@ -588,14 +600,41 @@ impl Renderer {
             return Span::styled("██", Self::line_clear_style(animation.total_lines));
         }
 
-        let (kind, is_ghost) = Self::get_combined_cell(state, ghost_y, x, y);
-        match kind {
-            None => Span::raw("  "),
-            Some(kind) if is_ghost => {
+        let effects = state.visual_effects();
+        let xi = x as i32;
+        match Self::get_combined_cell(state, ghost_y, x, y) {
+            Cell::Empty => match effects.and_then(|effects| effects.trail_at(xi, y)) {
+                Some(kind) => Span::styled("░░", Self::trail_style(kind)),
+                None => Span::raw("  "),
+            },
+            Cell::Ghost(kind) => {
                 Span::styled("░░", Style::default().fg(Self::get_piece_color(kind)))
             }
-            Some(kind) => Span::styled("██", Style::default().fg(Self::get_piece_color(kind))),
+            Cell::InPlay(kind) => {
+                Span::styled("██", Style::default().fg(Self::get_piece_color(kind)))
+            }
+            Cell::Locked(_) if effects.is_some_and(|effects| effects.is_flashing(xi, y)) => {
+                Span::styled("██", Self::lock_flash_style())
+            }
+            Cell::Locked(kind) => Span::styled(
+                LOCKED_MINO,
+                Style::default().fg(Self::get_piece_color(kind)),
+            ),
         }
+    }
+
+    /// A Tetrimino that just Locked Down flashes white (Guideline 13.1.3).
+    fn lock_flash_style() -> Style {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    }
+
+    /// A Hard Drop trail is a faint shadow in the Tetrimino's color (Guideline 13.1.2).
+    fn trail_style(kind: TetriminoType) -> Style {
+        Style::default()
+            .fg(Self::get_piece_color(kind))
+            .add_modifier(Modifier::DIM)
     }
 
     /// Row where the Tetrimino in play would land, if there is one in play.
@@ -614,12 +653,7 @@ impl Renderer {
         }
     }
 
-    fn get_combined_cell(
-        state: &GameState,
-        ghost_y: Option<i32>,
-        x: usize,
-        y: i32,
-    ) -> (Option<TetriminoType>, bool) {
+    fn get_combined_cell(state: &GameState, ghost_y: Option<i32>, x: usize, y: i32) -> Cell {
         if let Some(piece) = state.current_piece() {
             let xi = x as i32;
             let blocks = piece.get_blocks();
@@ -627,17 +661,20 @@ impl Renderer {
                 .iter()
                 .any(|(dx, dy)| piece.x + dx == xi && piece.y + dy == y)
             {
-                return (Some(piece.kind), false);
+                return Cell::InPlay(piece.kind);
             }
             if let Some(ghost_y) = ghost_y
                 && blocks
                     .iter()
                     .any(|(dx, dy)| piece.x + dx == xi && ghost_y + dy == y)
             {
-                return (Some(piece.kind), true);
+                return Cell::Ghost(piece.kind);
             }
         }
-        (state.board.get_cell(x, y), false)
+        match state.board.get_cell(x, y) {
+            Some(kind) => Cell::Locked(kind),
+            None => Cell::Empty,
+        }
     }
 
     fn get_piece_color(kind: TetriminoType) -> Color {
@@ -1117,6 +1154,83 @@ mod tests {
         // Four Minos, each two characters wide.
         assert_eq!(count(&buffer, "█"), 8);
         assert_eq!(count_right_of_info(&buffer, "░"), 8);
+    }
+
+    /// The style of every cell drawn with a symbol, right of the left panels.
+    fn styles_of(buffer: &Buffer, symbol: &str) -> Vec<Style> {
+        let start = (buffer.area.width - 50) / 2 + SIDE_PANEL_WIDTH;
+        (0..buffer.area.height)
+            .flat_map(|y| (start..buffer.area.width).map(move |x| (x, y)))
+            .filter(|position| buffer[*position].symbol() == symbol)
+            .map(|position| buffer[position].style())
+            .collect()
+    }
+
+    #[test]
+    fn test_locked_minos_are_textured_and_the_piece_in_play_is_solid() {
+        let mut state = state();
+        state.next_pieces.clear();
+        state.board.set_cell(0, 19, Some(TetriminoType::Z));
+        state.phase = Phase::Falling(Tetrimino {
+            kind: TetriminoType::T,
+            x: 3,
+            y: 5,
+            facing: Facing::North,
+        });
+        let buffer = draw_state(&state);
+        assert_eq!(count(&buffer, "█"), 8);
+        assert_eq!(count(&buffer, "▓"), 2);
+        assert!(
+            styles_of(&buffer, "▓")
+                .iter()
+                .all(|style| style.fg == Some(Color::Red))
+        );
+    }
+
+    #[test]
+    fn test_hard_drop_flashes_white_and_leaves_a_dim_trail_that_fades() {
+        let mut state = state();
+        state.next_pieces.clear();
+        state.phase = Phase::Falling(Tetrimino {
+            kind: TetriminoType::O,
+            x: 4,
+            y: 8,
+            facing: Facing::North,
+        });
+        state.hard_drop();
+        let buffer = draw_state(&state);
+        // The O's four Minos flash, and its two columns trail 10 rows each.
+        let flash = styles_of(&buffer, "█");
+        assert_eq!(flash.len(), 8);
+        assert!(flash.iter().all(|style| style.fg == Some(Color::White)));
+        let trail = styles_of(&buffer, "░");
+        assert_eq!(trail.len(), 2 * 10 * 2);
+        assert!(trail.iter().all(|style| {
+            style.fg == Some(Color::Yellow) && style.add_modifier.contains(Modifier::DIM)
+        }));
+
+        state.tick(crate::visual_effects::HARD_DROP_TRAIL_TIME);
+        let buffer = draw_state(&state);
+        assert_eq!(count_right_of_info(&buffer, "█"), 0);
+        assert_eq!(count_right_of_info(&buffer, "▓"), 8);
+        assert_eq!(count_right_of_info(&buffer, "░"), 0);
+    }
+
+    #[test]
+    fn test_effects_are_not_drawn_after_game_over() {
+        let mut state = state();
+        state.next_pieces.clear();
+        state.phase = Phase::Falling(Tetrimino {
+            kind: TetriminoType::O,
+            x: 4,
+            y: 8,
+            facing: Facing::North,
+        });
+        state.hard_drop();
+        state.quit();
+        let buffer = draw_state(&state);
+        assert_eq!(count_right_of_info(&buffer, "░"), 0);
+        assert_eq!(count_right_of_info(&buffer, "▓"), 8);
     }
 
     #[test]

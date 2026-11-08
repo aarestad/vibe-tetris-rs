@@ -3,6 +3,7 @@ use crate::config::{GameConfig, GameMode, LockDownMode};
 use crate::scoring::{Scoring, TSpin};
 use crate::sound::SoundEffect;
 use crate::tetrimino::{Tetrimino, TetriminoType, rotation_points};
+use crate::visual_effects::VisualEffects;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
@@ -99,6 +100,8 @@ pub struct GameState {
     last_move_was_rotation: bool,
     used_rotation_point_5: bool,
     pub(crate) notification: Option<(String, Duration)>,
+    /// The Lock Down flash and Hard Drop trail (Guideline 13.1.2, 13.1.3).
+    pub(crate) effects: VisualEffects,
     /// Sounds for events since the last `take_sound_effects`.
     pub(crate) sound_effects: Vec<SoundEffect>,
 }
@@ -148,6 +151,7 @@ impl GameState {
             last_move_was_rotation: false,
             used_rotation_point_5: false,
             notification: None,
+            effects: VisualEffects::default(),
             sound_effects: Vec::new(),
         };
 
@@ -232,6 +236,7 @@ impl GameState {
             return;
         }
         self.update_notification(dt);
+        self.effects.tick(dt);
 
         match &mut self.phase {
             Phase::Generation { remaining } => {
@@ -546,6 +551,9 @@ impl GameState {
             self.last_move_was_rotation = false;
         }
         self.scoring.add_hard_drop(rows);
+        if let Some(landed) = self.falling_piece() {
+            self.effects.hard_drop(&landed, rows as u32);
+        }
         self.sound_effects.push(SoundEffect::HardDrop);
         self.lock_piece(true);
     }
@@ -566,6 +574,7 @@ impl GameState {
         self.board.lock_tetrimino(&piece);
         self.scoring.statistics.tetriminos += 1;
         self.hold_used = false;
+        self.effects.lock_down(&piece);
 
         // A whole Tetrimino above the Skyline is a Lock Out (Guideline 10).
         if piece.get_blocks().iter().all(|(_, dy)| piece.y + dy < 0) {
@@ -607,6 +616,8 @@ impl GameState {
         };
         let tspin = animation.tspin;
         let lines = self.board.clear_lines();
+        // The rows have moved, so the effects no longer line up with them.
+        self.effects.clear();
         self.finish_action(tspin, lines);
     }
 
@@ -718,6 +729,12 @@ impl GameState {
         })
     }
 
+    /// The Lock Down flash and Hard Drop trail to draw. None once the game is over, so an
+    /// effect does not stay frozen on the Game Over screen.
+    pub fn visual_effects(&self) -> Option<&VisualEffects> {
+        (!self.is_game_over()).then_some(&self.effects)
+    }
+
     /// Text of the current action notification, if one is showing (Guideline 13.1.5).
     pub fn notification_text(&self) -> Option<&str> {
         self.notification.as_ref().map(|(text, _)| text.as_str())
@@ -728,6 +745,7 @@ impl GameState {
 mod tests {
     use super::*;
     use crate::tetrimino::Facing;
+    use crate::visual_effects::LOCK_FLASH_TIME;
     use std::collections::HashSet;
 
     const ALL_TYPES: [TetriminoType; 7] = [
@@ -1136,6 +1154,50 @@ mod tests {
         assert_eq!(state.scoring.score, 20);
         assert!(state.current_piece().is_none());
         assert_eq!(state.board.get_cell(4, 19), Some(TetriminoType::O));
+    }
+
+    #[test]
+    fn test_hard_drop_flashes_the_locked_minos_and_leaves_a_trail_above_them() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 8, Facing::North));
+        state.hard_drop();
+        let effects = state.visual_effects().unwrap();
+        assert!(effects.is_flashing(4, 19) && effects.is_flashing(4, 18));
+        assert_eq!(effects.trail_at(4, 17), Some(TetriminoType::O));
+        assert_eq!(effects.trail_at(4, 8), Some(TetriminoType::O));
+        assert_eq!(effects.trail_at(4, 7), None);
+        assert_eq!(effects.trail_at(4, 19), None);
+    }
+
+    #[test]
+    fn test_lock_flash_ends_before_the_next_tetrimino_and_a_plain_lock_has_no_trail() {
+        let mut state = new_state();
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 18, Facing::North));
+        state.lock_current_piece();
+        let effects = state.visual_effects().unwrap();
+        assert!(effects.is_flashing(4, 19));
+        assert_eq!(effects.trail_at(4, 17), None);
+
+        state.tick(LOCK_FLASH_TIME);
+        assert!(!state.visual_effects().unwrap().is_flashing(4, 19));
+        assert!(LOCK_FLASH_TIME < GENERATION_DELAY);
+    }
+
+    #[test]
+    fn test_line_clear_ends_the_effects_and_game_over_hides_them() {
+        let mut state = new_state();
+        fill_row_except(&mut state, 19, &[0]);
+        state.phase = Phase::Falling(piece(TetriminoType::I, -2, 10, Facing::East));
+        state.hard_drop();
+        assert!(state.visual_effects().unwrap().is_flashing(0, 19));
+        state.complete_line_clear();
+        let effects = state.visual_effects().unwrap();
+        assert!(!effects.is_flashing(0, 19) && effects.trail_at(0, 10).is_none());
+
+        state.phase = Phase::Falling(piece(TetriminoType::O, 4, 8, Facing::North));
+        state.hard_drop();
+        state.quit();
+        assert!(state.visual_effects().is_none());
     }
 
     fn with_starting_blocks(rows: u32, seed: u64) -> GameState {
