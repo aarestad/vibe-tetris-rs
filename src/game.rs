@@ -4,8 +4,9 @@ use crate::end_reward::EndReward;
 use crate::game_state::GameState;
 use crate::high_scores::{HighScore, HighScores, NameEntry, NameEntryResult, TextInput};
 use crate::input::InputHandler;
-use crate::menu::{Menu, MenuResult};
+use crate::menu::{Menu, MenuResult, OptionItem};
 use crate::session::{MusicChange, Session};
+use crate::sound::SoundEffect;
 use crate::ui::{GameOverView, Renderer};
 use anyhow::Result;
 use crossterm::{
@@ -55,7 +56,7 @@ impl Game {
         } else {
             AudioPlayer::no_sound()
         };
-        audio.set_effects_volume(0.4);
+        audio.set_effects_volume(config.sound_effects_gain());
 
         Ok(Self {
             menu: Menu::new(&config),
@@ -111,6 +112,9 @@ impl Game {
     /// keeps the settings for this run and is reported when the program exits.
     fn save_options(&mut self) {
         self.menu.options().apply_to(&mut self.config);
+        self.audio
+            .set_effects_volume(self.config.sound_effects_gain());
+        self.preview_sound_effects();
         if let Err(error) = self.config.save_to_file(&self.config_path) {
             self.warn(format!("could not save options: {error:#}"));
         }
@@ -246,6 +250,18 @@ impl Game {
         }
     }
 
+    /// Plays a sample effect when the effects are turned on or their volume changes, so the
+    /// player can hear the new setting.
+    fn preview_sound_effects(&mut self) {
+        let effects_option = matches!(
+            self.menu.selected_option(),
+            OptionItem::SoundEffects | OptionItem::SoundEffectsVolume
+        );
+        if effects_option && self.config.enable_sound_effects {
+            self.audio.play_effect(SoundEffect::LineClear(1));
+        }
+    }
+
     fn play_sound_effects(&mut self, session: &mut Session) {
         for effect in session.take_sound_effects() {
             if self.config.enable_sound_effects {
@@ -258,7 +274,7 @@ impl Game {
         if !self.config.enable_music || THEME.is_empty() {
             return;
         }
-        self.audio.set_volume(0.5);
+        self.audio.set_volume(self.config.music_gain());
         self.audio.play_background_music(THEME);
     }
 

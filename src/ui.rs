@@ -203,6 +203,12 @@ impl Renderer {
                         format!("Lock Down: < {mode} >")
                     }
                     OptionItem::Music => format!("Music: < {} >", on_off(options.enable_music)),
+                    OptionItem::MusicVolume => {
+                        format!("Music Volume: < {} >", options.music_volume)
+                    }
+                    OptionItem::SoundEffectsVolume => {
+                        format!("Effects Volume: < {} >", options.sound_effects_volume)
+                    }
                     OptionItem::SoundEffects => {
                         format!(
                             "Sound Effects: < {} >",
@@ -1036,7 +1042,7 @@ fn mix_bits(value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::GameConfig;
+    use crate::config::{GameConfig, MAX_VOLUME};
     use crate::game_state::Phase;
     use crate::menu::MenuInput;
     use crate::tetrimino::Facing;
@@ -1320,7 +1326,9 @@ mod tests {
             "  Ghost Piece: < On >",
             "  Lock Down: < Extended >",
             "  Music: < On >",
+            "  Music Volume: < 5 >",
             "  Sound Effects: < On >",
+            "  Effects Volume: < 4 >",
             "  Back",
             "Saved as you change them",
         ] {
@@ -1339,11 +1347,16 @@ mod tests {
         for _ in 0..2 {
             menu.handle_input(MenuInput::Down);
         }
+        for _ in 0..MAX_VOLUME {
+            menu.handle_input(MenuInput::Right);
+        }
+        menu.handle_input(MenuInput::Down);
         menu.handle_input(MenuInput::Right);
         let screen = text(&draw(MENU_MIN_WIDTH, MENU_MIN_HEIGHT, |f| {
             Renderer::draw_menu(f, &menu, &HighScores::default())
         }));
         assert!(screen.contains("Lock Down: < Classic >"), "{screen}");
+        assert!(screen.contains("Music Volume: < 10 >"), "{screen}");
         assert!(screen.contains("> Sound Effects: < Off >"), "{screen}");
         assert!(screen.contains("Saved as you change them"), "{screen}");
     }

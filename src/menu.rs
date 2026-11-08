@@ -1,4 +1,4 @@
-use crate::config::{GameConfig, GameMode, LockDownMode};
+use crate::config::{GameConfig, GameMode, LockDownMode, MAX_VOLUME};
 use crate::screen::HelpPage;
 
 /// Modes in the order the menu shows them (Guideline 12).
@@ -66,19 +66,23 @@ pub enum OptionItem {
     GhostPiece,
     LockDown,
     Music,
+    MusicVolume,
     SoundEffects,
+    SoundEffectsVolume,
     Back,
 }
 
 impl OptionItem {
     /// All items in the order shown.
-    pub const ALL: [OptionItem; 7] = [
+    pub const ALL: [OptionItem; 9] = [
         OptionItem::NextQueue,
         OptionItem::Hold,
         OptionItem::GhostPiece,
         OptionItem::LockDown,
         OptionItem::Music,
+        OptionItem::MusicVolume,
         OptionItem::SoundEffects,
+        OptionItem::SoundEffectsVolume,
         OptionItem::Back,
     ];
 }
@@ -114,6 +118,10 @@ pub struct Options {
     pub lock_down_mode: LockDownMode,
     pub enable_music: bool,
     pub enable_sound_effects: bool,
+    /// From 0 to `MAX_VOLUME`.
+    pub music_volume: u32,
+    /// From 0 to `MAX_VOLUME`.
+    pub sound_effects_volume: u32,
 }
 
 impl Options {
@@ -125,6 +133,8 @@ impl Options {
             lock_down_mode: config.lock_down_mode,
             enable_music: config.enable_music,
             enable_sound_effects: config.enable_sound_effects,
+            music_volume: config.music_volume,
+            sound_effects_volume: config.sound_effects_volume,
         }
     }
 
@@ -136,6 +146,8 @@ impl Options {
         config.lock_down_mode = self.lock_down_mode;
         config.enable_music = self.enable_music;
         config.enable_sound_effects = self.enable_sound_effects;
+        config.music_volume = self.music_volume;
+        config.sound_effects_volume = self.sound_effects_volume;
     }
 }
 
@@ -370,9 +382,32 @@ impl Menu {
             OptionItem::SoundEffects => {
                 options.enable_sound_effects = !options.enable_sound_effects;
             }
+            OptionItem::MusicVolume => {
+                return change_volume(&mut options.music_volume, forward);
+            }
+            OptionItem::SoundEffectsVolume => {
+                return change_volume(&mut options.sound_effects_volume, forward);
+            }
             OptionItem::Back => return MenuResult::Stay,
         }
         MenuResult::OptionsChanged
+    }
+}
+
+/// Turns a volume up or down by one. Volume stops at either end instead of wrapping, so the
+/// sound never jumps from silent to full.
+fn change_volume(volume: &mut u32, up: bool) -> MenuResult {
+    let changed = if up {
+        (*volume < MAX_VOLUME).then(|| *volume + 1)
+    } else {
+        volume.checked_sub(1)
+    };
+    match changed {
+        Some(new_volume) => {
+            *volume = new_volume;
+            MenuResult::OptionsChanged
+        }
+        None => MenuResult::Stay,
     }
 }
 
@@ -729,6 +764,41 @@ mod tests {
             }
             assert_eq!(menu.options(), expected, "{item:?}");
         }
+    }
+
+    #[test]
+    fn test_volumes_step_by_one_and_stop_at_either_end() {
+        type Get = fn(&Options) -> u32;
+        let cases: [(OptionItem, Get); 2] = [
+            (OptionItem::MusicVolume, |o| o.music_volume),
+            (OptionItem::SoundEffectsVolume, |o| o.sound_effects_volume),
+        ];
+        for (item, get) in cases {
+            let mut menu = options_menu_on(item);
+            let start = get(&menu.options());
+            assert_eq!(menu.handle_input(Right), MenuResult::OptionsChanged);
+            assert_eq!(get(&menu.options()), start + 1, "{item:?}");
+            while get(&menu.options()) < MAX_VOLUME {
+                assert_eq!(menu.handle_input(Select), MenuResult::OptionsChanged);
+            }
+            assert_eq!(menu.handle_input(Right), MenuResult::Stay, "{item:?}");
+            assert_eq!(get(&menu.options()), MAX_VOLUME);
+            for expected in (0..MAX_VOLUME).rev() {
+                assert_eq!(menu.handle_input(Left), MenuResult::OptionsChanged);
+                assert_eq!(get(&menu.options()), expected, "{item:?}");
+            }
+            assert_eq!(menu.handle_input(Left), MenuResult::Stay, "{item:?}");
+            assert_eq!(get(&menu.options()), 0);
+        }
+    }
+
+    #[test]
+    fn test_volume_changes_leave_the_other_options_alone() {
+        let mut menu = options_menu_on(OptionItem::SoundEffectsVolume);
+        menu.handle_input(Left);
+        let mut expected = Options::from_config(&GameConfig::default());
+        expected.sound_effects_volume -= 1;
+        assert_eq!(menu.options(), expected);
     }
 
     #[test]

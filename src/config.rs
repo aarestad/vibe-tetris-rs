@@ -29,6 +29,10 @@ pub enum GameMode {
     Ultra,
 }
 
+/// Loudest volume setting for the music and the sound effects. A setting of `n` plays at
+/// `n / MAX_VOLUME` of full volume.
+pub const MAX_VOLUME: u32 = 10;
+
 /// Most rows of Starting Blocks a game can begin with.
 pub const MAX_STARTING_BLOCKS: u32 = 10;
 
@@ -64,6 +68,10 @@ pub struct GameConfig {
     pub enable_music: bool,
     /// Plays sound effects (Guideline 2.5.6).
     pub enable_sound_effects: bool,
+    /// Background music volume, from 0 to 10 (Guideline 2.5.5).
+    pub music_volume: u32,
+    /// Sound effect volume, from 0 to 10 (Guideline 2.5.6).
+    pub sound_effects_volume: u32,
     /// Tetriminos shown in the Next Queue, 1 to 6.
     pub preview_count: usize,
     /// Delay before Auto-Repeat starts, in milliseconds.
@@ -89,6 +97,8 @@ impl Default for GameConfig {
             enable_sound: true,
             enable_music: true,
             enable_sound_effects: true,
+            music_volume: 5,
+            sound_effects_volume: 4,
             preview_count: 3,
             das_delay: 300,
             das_repeat: 50,
@@ -117,6 +127,16 @@ impl GameConfig {
             .validate()
             .with_context(|| format!("invalid settings in {}", path.display()))?;
         Ok(config)
+    }
+
+    /// The music volume as a fraction of full volume, from 0.0 to 1.0.
+    pub fn music_gain(&self) -> f32 {
+        volume_gain(self.music_volume)
+    }
+
+    /// The sound effect volume as a fraction of full volume, from 0.0 to 1.0.
+    pub fn sound_effects_gain(&self) -> f32 {
+        volume_gain(self.sound_effects_volume)
     }
 
     /// Writes these settings to a config file as formatted JSON, replacing the file.
@@ -152,8 +172,21 @@ impl GameConfig {
             "preview_count must be from 1 to 6"
         );
         ensure!(self.das_repeat >= 1, "das_repeat must be at least 1");
+        ensure!(
+            self.music_volume <= MAX_VOLUME,
+            "music_volume must be from 0 to {MAX_VOLUME}"
+        );
+        ensure!(
+            self.sound_effects_volume <= MAX_VOLUME,
+            "sound_effects_volume must be from 0 to {MAX_VOLUME}"
+        );
         Ok(())
     }
+}
+
+/// A volume setting as a fraction of full volume.
+fn volume_gain(volume: u32) -> f32 {
+    volume.min(MAX_VOLUME) as f32 / MAX_VOLUME as f32
 }
 
 #[cfg(test)]
@@ -182,6 +215,22 @@ mod tests {
         let config: GameConfig = serde_json::from_str(r#"{"enable_music": false}"#).unwrap();
         assert!(!config.enable_music);
         assert!(config.enable_sound_effects);
+    }
+
+    #[test]
+    fn test_volumes_keep_the_old_fixed_levels_by_default_and_scale_to_full() {
+        let default = GameConfig::default();
+        assert_eq!(default.music_gain(), 0.5);
+        assert_eq!(default.sound_effects_gain(), 0.4);
+
+        let config = GameConfig {
+            music_volume: 0,
+            sound_effects_volume: MAX_VOLUME,
+            ..GameConfig::default()
+        };
+        assert!(config.validate().is_ok());
+        assert_eq!(config.music_gain(), 0.0);
+        assert_eq!(config.sound_effects_gain(), 1.0);
     }
 
     #[test]
@@ -237,6 +286,14 @@ mod tests {
             },
             GameConfig {
                 das_repeat: 0,
+                ..Default::default()
+            },
+            GameConfig {
+                music_volume: MAX_VOLUME + 1,
+                ..Default::default()
+            },
+            GameConfig {
+                sound_effects_volume: MAX_VOLUME + 1,
                 ..Default::default()
             },
         ];

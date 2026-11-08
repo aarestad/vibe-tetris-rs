@@ -581,6 +581,17 @@ fn test_options_are_saved_to_the_config_file_and_used_by_the_next_game() {
     // Settings the Options page does not show are kept.
     assert!(terminal.config_file().contains("\"enable_sound\": false"));
 
+    // Up from the top wraps to Back, and Effects Volume is just above it.
+    for _ in 0..3 {
+        terminal.send(UP);
+    }
+    terminal.wait_for_text("> Effects Volume: < 4 >");
+    terminal.send(LEFT);
+    terminal.wait_for_text("> Effects Volume: < 3 >");
+    terminal.wait_for("the volume to be saved", |t| {
+        t.config_file().contains("\"sound_effects_volume\": 3")
+    });
+
     terminal.send("\x1b");
     terminal.wait_for_text("> Options");
     for _ in 0..6 {
