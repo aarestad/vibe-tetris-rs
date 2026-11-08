@@ -795,20 +795,53 @@ fn test_hold_shows_the_piece_in_the_hold_queue() {
     let terminal = Terminal::start(KeyReleases::NotSupported);
     terminal.wait_for_piece();
 
-    let hold_panel_has_blocks = |t: &Terminal| {
-        let parser = t.parser.lock().unwrap();
-        let screen = parser.screen();
-        (4..9).any(|row| {
-            (16..28).any(|column| {
-                screen
-                    .cell(row, column)
-                    .is_some_and(|cell| cell.contents() == "█")
-            })
-        })
-    };
     assert!(!hold_panel_has_blocks(&terminal));
     terminal.send("c");
     terminal.wait_for("a held Tetrimino", hold_panel_has_blocks);
+}
+
+/// Whether the Hold Queue shows a Tetrimino.
+fn hold_panel_has_blocks(terminal: &Terminal) -> bool {
+    let parser = terminal.parser.lock().unwrap();
+    let screen = parser.screen();
+    (4..9).any(|row| {
+        (16..28).any(|column| {
+            screen
+                .cell(row, column)
+                .is_some_and(|cell| cell.contents() == "█")
+        })
+    })
+}
+
+#[test]
+fn test_shift_alone_holds_on_a_terminal_that_reports_it() {
+    let terminal = Terminal::start(KeyReleases::Supported);
+    terminal.wait_for_piece();
+    // Play turns on reporting every key, which is what makes Shift alone a key.
+    terminal.wait_for("all keys reported during play", |t| {
+        t.raw_output_contains("\x1b[>11u")
+    });
+    assert!(!hold_panel_has_blocks(&terminal));
+    // Kitty's code for Left Shift going down.
+    terminal.send("\x1b[57441;2:1u");
+    terminal.wait_for("a held Tetrimino", hold_panel_has_blocks);
+}
+
+#[test]
+fn test_keys_remapped_in_the_config_file_work_and_show_in_help() {
+    let terminal = Terminal::start_with(
+        r#"{"enable_sound": false, "controls": {"hold": ["a"], "help": ["f2"]}}"#,
+        KeyReleases::NotSupported,
+        WIDTH,
+        HEIGHT,
+    );
+    terminal.wait_for_piece();
+    terminal.send("a");
+    terminal.wait_for("a held Tetrimino", hold_panel_has_blocks);
+    terminal.send("\x1bOQ");
+    terminal.wait_for_text("CONTROLS");
+    terminal.wait_for_text("Hold:       A");
+    terminal.wait_for_text("Help:       F2");
 }
 
 #[test]

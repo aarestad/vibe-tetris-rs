@@ -145,13 +145,15 @@ src/
 ├── menu.rs          # Main Menu choices, with no terminal
 ├── ui.rs            # Terminal rendering and display
 ├── visual_effects.rs # Lock Down flash and Hard Drop trail
-└── config.rs        # Game configuration and file I/O
+├── config.rs        # Game configuration and file I/O
+└── controls.rs      # Key bindings for play actions and their config file names
 ```
 
 ## Common Gotchas
 
 - Terminal mode: Always use RAII pattern for terminal cleanup
 - Coordinate system: Y increases downward, so y-up rotation tables need their sign reversed
+- Shift and Ctrl alone: reported only while play pushes `REPORT_ALL_KEYS_AS_ESCAPE_CODES`, which is popped before name entry so shifted letters still type
 - Key releases: only terminals with keyboard enhancement report them; other terminals get one Soft Drop row or one move per key event, with OS key repeat
 - Input handling: Poll in main loop, don't block for extended periods
 - Frame timing: Use `Instant::now()` and `Duration` for accurate timing

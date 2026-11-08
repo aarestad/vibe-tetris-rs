@@ -43,8 +43,8 @@ white as it Locks Down, and a Hard Drop leaves a fading trail behind it.
 | Soft Drop | Down (numpad 2) |
 | Hard Drop | Space (numpad 8) |
 | Rotate clockwise | Up, X (numpad 1, 5, 9) |
-| Rotate counterclockwise | Z (numpad 3, 7) |
-| Hold | C (numpad 0) |
+| Rotate counterclockwise | Ctrl, Z (numpad 3, 7) |
+| Hold | Shift, C (numpad 0) |
 | Pause | Esc, F1, P |
 | Help | H |
 | Quit | Q, Ctrl+C |
@@ -56,8 +56,12 @@ pages, both from the menu and during a game, where play stops until H closes Hel
 
 Numpad keys are read as digits, so the number row does the same thing.
 
-Auto-Repeat and 20x Soft Drop need a terminal that reports key releases, such as kitty, WezTerm,
-foot, Ghostty or iTerm2. In other terminals, holding a key uses your system's key repeat.
+Auto-Repeat, 20x Soft Drop, and Shift and Ctrl alone need a terminal that reports key releases,
+such as kitty, WezTerm, foot, Ghostty or iTerm2. In other terminals, holding a key uses your
+system's key repeat, and C and Z do what Shift and Ctrl would. While Ctrl is a play key, Ctrl+C
+during play acts as C, so use Q to quit a game.
+
+Every play key can be changed in the config file; see `controls` below.
 
 ## Configuration
 
@@ -84,7 +88,19 @@ in the game rewrites the file with every setting filled in.
   "preview_count": 3,
   "das_delay": 300,
   "das_repeat": 50,
-  "lock_down_mode": "extended"
+  "lock_down_mode": "extended",
+  "controls": {
+    "move_left": ["left", "4"],
+    "move_right": ["right", "6"],
+    "soft_drop": ["down", "2"],
+    "hard_drop": ["space", "8"],
+    "rotate_clockwise": ["up", "x", "1", "5", "9"],
+    "rotate_counterclockwise": ["ctrl", "z", "3", "7"],
+    "hold": ["shift", "c", "0"],
+    "pause": ["esc", "f1", "p"],
+    "help": ["h"],
+    "quit": ["q"]
+  }
 }
 ```
 
@@ -98,3 +114,9 @@ and `sound_effects_volume` go from 0, silent, to 10, full volume.
 begins, from 0 to 10 and at most half of `board_height`. Every row has at least one gap.
 
 `lock_down_mode` can be `extended`, `infinite` or `classic`.
+
+`controls` lists the keys for each play action. Keys are single characters, or `space`, `left`,
+`right`, `up`, `down`, `esc`, `enter`, `tab`, `backspace`, `f1` to `f12`, `shift` and `ctrl`.
+Letters work in either case. An action left out keeps its default keys. A key bound to two
+actions is an error, and each action needs at least one key besides Shift and Ctrl. The menu's
+keys cannot be changed.

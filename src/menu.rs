@@ -1,4 +1,5 @@
 use crate::config::{GameConfig, GameMode, LockDownMode, MAX_VOLUME};
+use crate::controls::Controls;
 use crate::screen::HelpPage;
 
 /// Modes in the order the menu shows them (Guideline 12).
@@ -168,6 +169,8 @@ pub struct Menu {
     table_mode: GameMode,
     /// A just-entered result to mark in its variant's table, as its place from 0.
     highlight: Option<(GameMode, usize)>,
+    /// The play keys, for the Help page.
+    controls: Controls,
 }
 
 impl Menu {
@@ -183,6 +186,7 @@ impl Menu {
             starting_blocks: config.starting_blocks,
             max_starting_blocks: config.max_starting_blocks(),
             options: Options::from_config(config),
+            controls: config.controls.clone(),
             table_mode: config.game_mode,
             highlight: None,
         }
@@ -214,6 +218,11 @@ impl Menu {
 
     pub fn starting_blocks(&self) -> u32 {
         self.starting_blocks
+    }
+
+    /// The play keys from the config file, which Help lists.
+    pub fn controls(&self) -> &Controls {
+        &self.controls
     }
 
     pub fn options(&self) -> Options {

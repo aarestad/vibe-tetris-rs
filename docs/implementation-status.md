@@ -4,7 +4,7 @@ Nov 6, 2026, updated Nov 7, 2026 · @Peter Aarestad
 
 ## Summary
 
-tetris-rs now plays as Guideline Tetris: of 37 Guideline areas, 31 are met, 5 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
+tetris-rs now plays as Guideline Tetris: of 37 Guideline areas, 32 are met, 4 partial, 0 wrong and 1 missing. Before this pass the counts were 7 met, 13 partial, 6 wrong and 11 missing. All 12 listed defects are fixed, and the core engine and scoring rules are in place.
 
 What remains:
 
@@ -18,23 +18,24 @@ This report describes `main` at commit `d567572`, which adds the Lock Down flash
 
 ## Current state
 
-The code is a 11,356-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
+The code is an 11,944-line, single-player Rust terminal game on `main`, built on ratatui, crossterm and rodio. The program opens on a Main Menu, and each game runs in a `Session` with no terminal or sound device, so `Game` only does I/O. Game flow runs through a `Phase` enum, pause and help share a `Screen` enum, and scoring, sound effects, high scores and End Rewards have their own modules.
 
 | Module | Lines (with tests) | Tests | Responsibility |
 | --- | --- | --- | --- |
 | `src/game_state.rs` | 2,005 | 88 | Phases, generation, gravity, Lock Down, Hold, T-Spin recognition, seedable bag, Starting Blocks, sound and visual effect events |
-| `src/ui.rs` | 2,212 | 54 | ratatui rendering: menu, Options and High Scores pages, Help pages, Matrix with textured locked Minos, Lock Down flash and Hard Drop trail, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
-| `tests/end_to_end.rs` | 1,029 | 36 | Runs the real binary in a pseudo-terminal and reads its screen |
-| `src/menu.rs` | 926 | 33 | Main Menu choices, the Options page and the High Scores page, with no terminal |
+| `src/ui.rs` | 2,221 | 54 | ratatui rendering: menu, Options and High Scores pages, Help pages with the bound keys, Matrix with textured locked Minos, Lock Down flash and Hard Drop trail, queues, high score field, progress bar, overlays, Game Over statistics, name entry, fireworks, too-small message |
+| `tests/end_to_end.rs` | 1,062 | 38 | Runs the real binary in a pseudo-terminal and reads its screen |
+| `src/menu.rs` | 935 | 33 | Main Menu choices, the Options page and the High Scores page, with no terminal |
 | `src/scoring.rs` | 651 | 28 | Score, Back-to-Back, level, Goal, the Sprint line count, Game Statistics and the scoring table for Help |
 | `src/session.rs` | 597 | 27 | Input and time handling for one game, with no terminal or sound |
-| `src/input.rs` | 519 | 19 | Play, menu and name entry key mapping, key press and release events, Auto-Repeat |
+| `src/input.rs` | 633 | 22 | Play keys through the bindings, Shift and Ctrl alone, menu and name entry keys, key press and release events, Auto-Repeat |
 | `src/high_scores.rs` | 516 | 13 | High Score Table per variant, ranking, saving and loading, name entry |
 | `src/board.rs` | 494 | 38 | Matrix and Buffer Zone storage, collision, Line Clear |
 | `src/tetrimino.rs` | 352 | 11 | Facings, Tetrimino shapes, generation position, Super Rotation tables |
-| `src/game.rs` | 330 | 0 | Connects the menu and each game to the real terminal and sound device, sets the volumes, and saves options and high scores |
+| `src/game.rs` | 368 | 0 | Connects the menu and each game to the real terminal and sound device, reports Shift and Ctrl during play, sets the volumes, and saves options and high scores |
 | `tests/skilled_play.rs` | 266 | 4 | A bot plays seeded Marathons, Sprints and Ultras through real key events |
-| `src/config.rs` | 358 | 11 | JSON config with defaults, validation and saving, including the game mode, Starting Blocks and volumes |
+| `src/config.rs` | 374 | 12 | JSON config with defaults, validation and saving, including the game mode, Starting Blocks, volumes and controls |
+| `src/controls.rs` | 368 | 7 | Key bindings for each play action, key names for the config file, and their checks |
 | `src/audio.rs` | 238 | 8 | Embedded background music and sound effects via rodio |
 | `src/sound.rs` | 224 | 7 | Sound effects as synthesized notes, rendered to samples |
 | `tests/random_play.rs` | 112 | 1 | Seeded random key events in all game, Lock Down, goal and input modes, with 0 to 10 rows of Starting Blocks |
@@ -43,7 +44,7 @@ The code is a 11,356-line, single-player Rust terminal game on `main`, built on 
 | `src/screen.rs` | 143 | 7 | Playing, Paused and Help screens, the Help pages and the keys that switch them |
 | `build.rs` | 39 | 0 | Converts the Korobeiniki MIDI to WAV with `timidity` |
 
-- **Tests:** `cargo test` passes all 391 tests: 350 in the library, 36 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
+- **Tests:** `cargo test` passes all 404 tests: 361 in the library, 38 end-to-end, 1 random play and 4 skilled play. The end-to-end tests take about 5 seconds, run only on Unix, and always turn sound off.
 - **Lint:** `cargo fmt --check` and `cargo clippy --all-targets` are both clean, with 0 warnings.
 - **CI:** `.github/workflows/ci.yml` runs on every push and on pull requests from forks. It checks formatting and clippy on Linux, with warnings as errors, and runs all tests on Linux and macOS. The Linux test job also requires the music to be embedded. Its latest run, for `d567572`, passed lint and all 391 tests on both.
 - **Dependencies:** `rand` is on stable `0.10.3`. `portable-pty` and `vt100` are for tests only, so the shipped game gains nothing from them.
@@ -82,7 +83,7 @@ The code is a 11,356-line, single-player Rust terminal game on `main`, built on 
 | Game Over conditions | 10 | Met | Block Out and Lock Out work. Top Out can only come from Line Attacks, which are not in single player. | `src/game_state.rs:535` |
 | Game information display | 2.4, 7 | Met | Score, level, lines, Goal and time, with hundredths in Sprint and a countdown in Ultra. The mode name is shown in the panel's border. A box under the Next Queue shows the variant's high score, or the current score once it is higher, and in Sprint the best time. It gives way if a smaller Matrix leaves no room. Player name and rank, also listed as possible fields, are left out. | `src/ui.rs:396` |
 | Pause | 13.1.6 | Met | Stops play and time, and hides the Matrix and both queues. | `src/ui.rs:548` |
-| Controls | 4.1 | Partial | All arrow, letter, Space, Esc and F1 keys work, and numpad keys work as digits. Shift, Ctrl and remapping are absent. | `src/input.rs:103` |
+| Controls | 4, 4.1 | Met | Every key in the Guideline's keyboard table works, with numpad keys read as digits. Shift holds and Ctrl rotates counterclockwise on terminals with keyboard enhancement, where play turns on reporting every key; elsewhere C and Z do the same. Every key can be remapped in the config file's `controls` section, which rejects a key bound twice and an action with only Shift or Ctrl. While Ctrl is a play key, Ctrl+C during play acts as C, and Q still quits. Help lists the keys as bound. | `src/controls.rs:121` |
 | Visual effects | 13.1 | Partial | Line Clear effects scale with count, and action notifications show outside the Matrix. A Tetrimino flashes white when it Locks Down, a Hard Drop leaves a dim trail that shrinks toward where it landed, and locked Minos are drawn textured (▓) so they stand apart from the solid Tetrimino in play. No background graphics. | `src/visual_effects.rs:1` |
 | Sound effects | 13.2 | Met | All six required effects plus Soft and Hard Drop, Hold, each Line Clear size, T-Spins, Back-to-Back, Level Up and blocked moves, synthesized in code. Peter has listened to them. | `src/sound.rs:13` |
 | Background music | 2.5.5, 13.3 | Met | Korobeiniki is embedded in the binary as the default and only track, and loops during each game, restarting from the beginning. It can be turned off, and its volume set from 0 to 10, on the Options page. Extra tracks are optional and not included. | `src/audio.rs:10` |
@@ -137,7 +138,7 @@ The structural cleanups from the earlier review are done: `Phase`, `Screen`, `Se
 
 ## Features to implement
 
-The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash and the Hard Drop trail. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
+The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, the Options page, the High Score Table, game statistics, End Rewards, Help, Starting Blocks, the music and effects volumes, the Lock Down flash, the Hard Drop trail, Shift and Ctrl, and key remapping. Game flow is complete for single player, so controls, effects and sound come next. Rows are in recommended order within each group. Effort is my relative estimate: S, M or L.
 
 ### 1. Terminal input
 
@@ -156,7 +157,7 @@ The engine rules and scoring are done, and so are sound effects, Sprint, Ultra, 
 | Feature | Section | Effort | Notes |
 | --- | --- | --- | --- |
 | Extra music tracks | 2.5.5, 13.3 | M | Optional. Korobeiniki must stay the default. More tracks would need public domain melodies arranged as MIDI, plus a track choice or Random Play on the Options page. |
-| Key remapping, Shift and Ctrl | 4, 4.1 | S | Shift and Ctrl alone need more keyboard enhancement flags. |
+| Key remapping in the menu | 4 | M | Optional. Keys can be remapped in the config file. A Controls page could capture a key press for each action instead. |
 | Background graphics | 13.1.4 | M | The last gap in visual effects. A background or border color change could mark a Level Up, Tetris, T-Spin or Back-to-Back without distracting from play. |
 
 ### 4. Optional

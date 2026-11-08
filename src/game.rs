@@ -60,12 +60,12 @@ impl Game {
 
         Ok(Self {
             menu: Menu::new(&config),
+            input: InputHandler::new(config.controls.clone()),
             config,
             config_path,
             scores,
             scores_path,
             renderer,
-            input: InputHandler::new(),
             audio,
             warnings: Vec::new(),
         })
@@ -142,6 +142,10 @@ impl Game {
         // Shown during play as the high score to beat (Guideline 2.4).
         let mode = session.state().config.game_mode;
         let best = self.scores.table(mode).first().cloned();
+        // Shift and Ctrl are play keys (Guideline 4.1), but only enhanced terminals report
+        // them alone, and only during play, so name entry still gets shifted letters.
+        let modifier_keys = ModifierKeyReporting::start(key_release_events)?;
+        self.input.set_modifier_keys(modifier_keys.active);
 
         self.start_music();
 
@@ -159,6 +163,8 @@ impl Game {
                 .render(session.state(), session.screen(), best.as_ref())?;
 
             if session.state().is_game_over() {
+                drop(modifier_keys);
+                self.input.set_modifier_keys(false);
                 self.audio.stop();
                 return self.finish_game(session.state(), best.as_ref());
             }
@@ -286,6 +292,38 @@ impl Game {
                 Some(MusicChange::Resume) => self.audio.resume(),
                 None => {}
             }
+        }
+    }
+}
+
+/// Has the terminal report every key as an escape code, including Shift and Ctrl alone, until
+/// dropped. Does nothing on terminals without keyboard enhancement.
+struct ModifierKeyReporting {
+    active: bool,
+}
+
+impl ModifierKeyReporting {
+    fn start(keyboard_enhanced: bool) -> Result<Self> {
+        if keyboard_enhanced {
+            execute!(
+                stdout(),
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                        | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                )
+            )?;
+        }
+        Ok(Self {
+            active: keyboard_enhanced,
+        })
+    }
+}
+
+impl Drop for ModifierKeyReporting {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
         }
     }
 }

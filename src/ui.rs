@@ -1,8 +1,10 @@
 use crate::config::GameMode;
 use crate::config::LockDownMode;
+use crate::controls::Controls;
 use crate::end_reward::EndReward;
 use crate::game_state::{GameOutcome, GameState, ULTRA_TIME};
 use crate::high_scores::{HighScore, HighScores, NAME_MAX_LEN, TABLE_SIZE};
+use crate::input::InputAction;
 use crate::menu::{Menu, MenuItem, MenuPage, OptionItem};
 use crate::scoring::{SPRINT_LINES, Statistics, scoring_table};
 use crate::screen::{HelpPage, Screen};
@@ -144,7 +146,7 @@ impl Renderer {
                 Self::draw_centered_box(f, " OPTIONS ", lines, Alignment::Left);
             }
             MenuPage::Help(page) => {
-                let lines = Self::help_lines(page, "Esc to go back");
+                let lines = Self::help_lines(page, menu.controls(), "Esc to go back");
                 Self::draw_centered_box(f, Self::help_title(page), lines, Alignment::Left);
             }
         }
@@ -740,7 +742,7 @@ impl Renderer {
 
     /// Draws a page of Help over play (Guideline 2.6).
     fn draw_help_overlay(f: &mut Frame, state: &GameState, page: HelpPage) {
-        let lines = Self::help_lines(page, "H to close");
+        let lines = Self::help_lines(page, &state.config.controls, "H to close");
         Self::draw_box(f, state, Self::help_title(page), lines, Alignment::Left);
     }
 
@@ -754,9 +756,9 @@ impl Renderer {
 
     /// A page of Help, ending with which page it is and how to leave. Every page fits in the
     /// smallest terminal the game allows.
-    fn help_lines(page: HelpPage, close_hint: &str) -> Vec<Line<'static>> {
+    fn help_lines(page: HelpPage, controls: &Controls, close_hint: &str) -> Vec<Line<'static>> {
         let mut lines = match page {
-            HelpPage::Controls => Self::controls_lines(),
+            HelpPage::Controls => Self::controls_lines(controls),
             HelpPage::HowToPlay => Self::how_to_play_lines(),
             HelpPage::Scoring => Self::scoring_lines(),
         };
@@ -766,24 +768,31 @@ impl Renderer {
         lines
     }
 
-    fn controls_lines() -> Vec<Line<'static>> {
-        let key_line = |action: &'static str, keys: &'static str| {
-            Line::from(vec![
-                Span::styled(action, Style::default().fg(HIGHLIGHT_COLOR)),
-                Span::styled(keys, Style::default().fg(Color::White)),
-            ])
-        };
-        vec![
-            key_line("Move:   ", "← →"),
-            key_line("Drop:   ", "↓"),
-            key_line("Hard:   ", "SPACE"),
-            key_line("Rotate: ", "↑ / X, Z"),
-            key_line("Hold:   ", "C"),
-            key_line("Pause:  ", "P / ESC / F1"),
-            Line::from(""),
-            key_line("Help:   ", "H"),
-            key_line("Quit:   ", "Q"),
-        ]
+    /// Every play action with the keys bound to it (Guideline 4).
+    fn controls_lines(controls: &Controls) -> Vec<Line<'static>> {
+        controls
+            .bindings()
+            .into_iter()
+            .map(|(action, keys)| {
+                let name = match action {
+                    InputAction::MoveLeft => "Left:",
+                    InputAction::MoveRight => "Right:",
+                    InputAction::MoveDown => "Soft Drop:",
+                    InputAction::HardDrop => "Hard Drop:",
+                    InputAction::RotateClockwise => "Rotate CW:",
+                    InputAction::RotateCounterClockwise => "Rotate CCW:",
+                    InputAction::Hold => "Hold:",
+                    InputAction::Pause => "Pause:",
+                    InputAction::ToggleHelp => "Help:",
+                    InputAction::Quit => "Quit:",
+                };
+                let keys: Vec<String> = keys.iter().map(|key| key.label()).collect();
+                Line::from(vec![
+                    Span::styled(format!("{name:<12}"), Style::default().fg(HIGHLIGHT_COLOR)),
+                    Span::styled(keys.join(" "), Style::default().fg(Color::White)),
+                ])
+            })
+            .collect()
     }
 
     /// The basics of play, in Guideline terms (Guideline 2.6 and the Tetris Glossary).
@@ -2021,7 +2030,7 @@ mod help_tests {
     /// Text that shows each page is there, from its first line and its last.
     fn page_marks(page: HelpPage) -> [&'static str; 2] {
         match page {
-            HelpPage::Controls => ["Move:", "Quit:"],
+            HelpPage::Controls => ["Left:", "Quit:"],
             HelpPage::HowToPlay => ["Tetriminos fall into the", "most points in 3 min"],
             HelpPage::Scoring => ["Actions (points x Level)", "Hard Drop: 2 points per row"],
         }
@@ -2082,7 +2091,7 @@ mod help_tests {
     #[test]
     fn test_help_lines_fit_the_box_width() {
         for page in HelpPage::ALL {
-            for line in Renderer::help_lines(page, "Esc to go back") {
+            for line in Renderer::help_lines(page, &Controls::default(), "Esc to go back") {
                 let width = line.width();
                 assert!(width <= BOX_WIDTH as usize - 2, "{page:?}: {line}");
             }

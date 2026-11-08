@@ -1,6 +1,9 @@
+use crate::controls::{Controls, Key};
 use crate::high_scores::TextInput;
 use crate::menu::MenuInput;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, ModifierKeyCode,
+};
 use std::time::Duration;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -24,12 +27,27 @@ pub enum InputEvent {
     Released(InputAction),
 }
 
+/// Reads the terminal's key events and turns them into game, menu and text input.
 #[derive(Default)]
-pub struct InputHandler;
+pub struct InputHandler {
+    controls: Controls,
+    /// True while the terminal reports Shift and Ctrl as keys of their own.
+    modifier_keys: bool,
+}
 
 impl InputHandler {
-    pub fn new() -> Self {
-        Self
+    /// Maps play keys with the given bindings (Guideline 4).
+    pub fn new(controls: Controls) -> Self {
+        Self {
+            controls,
+            modifier_keys: false,
+        }
+    }
+
+    /// Says whether the terminal now reports Shift and Ctrl alone, as it does during play
+    /// on terminals with keyboard enhancement.
+    pub fn set_modifier_keys(&mut self, reported: bool) {
+        self.modifier_keys = reported;
     }
 
     /// Returns the next game input, skipping events that map to nothing. Does not block.
@@ -97,8 +115,13 @@ impl InputHandler {
     }
 
     fn key_to_event(&self, key: KeyEvent) -> Option<InputEvent> {
-        // Raw mode delivers Ctrl+C as a key, and it must not act as Hold.
-        let action = if key.modifiers.contains(KeyModifiers::CONTROL) {
+        // When Ctrl is a play key the player may still be holding it while pressing another
+        // key, so Ctrl+C must act as C rather than quit. Q still quits.
+        // Ctrl's own key event also carries the Ctrl modifier.
+        let ctrl_is_a_play_key = (self.modifier_keys && self.controls.binds_ctrl())
+            || matches!(key.code, KeyCode::Modifier(_));
+        let action = if key.modifiers.contains(KeyModifiers::CONTROL) && !ctrl_is_a_play_key {
+            // Raw mode delivers Ctrl+C as a key, and it must not act as Hold.
             is_ctrl_c(key).then_some(InputAction::Quit)
         } else {
             self.key_to_action(key.code)
@@ -112,30 +135,32 @@ impl InputHandler {
         }
     }
 
-    /// Keyboard layout from the Guideline's table of basic controls (Guideline 4.1).
+    /// The action bound to a key, from the player's controls (Guideline 4).
     fn key_to_action(&self, key_code: KeyCode) -> Option<InputAction> {
-        match key_code {
-            KeyCode::Left => Some(InputAction::MoveLeft),
-            KeyCode::Right => Some(InputAction::MoveRight),
-            KeyCode::Down => Some(InputAction::MoveDown),
-            KeyCode::Up => Some(InputAction::RotateClockwise),
-            KeyCode::Esc | KeyCode::F(1) => Some(InputAction::Pause),
-            KeyCode::Char(c) => match c.to_ascii_lowercase() {
-                '4' => Some(InputAction::MoveLeft),
-                '6' => Some(InputAction::MoveRight),
-                '2' => Some(InputAction::MoveDown),
-                ' ' | '8' => Some(InputAction::HardDrop),
-                'x' | '1' | '5' | '9' => Some(InputAction::RotateClockwise),
-                'z' | '3' | '7' => Some(InputAction::RotateCounterClockwise),
-                'c' | '0' => Some(InputAction::Hold),
-                'p' => Some(InputAction::Pause),
-                'h' => Some(InputAction::ToggleHelp),
-                'q' => Some(InputAction::Quit),
-                _ => None,
-            },
-            _ => None,
-        }
+        self.controls.action_for(key_from_code(key_code)?)
     }
+}
+
+/// The bindable key for a terminal key code, if it is one.
+fn key_from_code(key_code: KeyCode) -> Option<Key> {
+    let key = match key_code {
+        KeyCode::Char(c) => Key::char(c),
+        KeyCode::Left => Key::Left,
+        KeyCode::Right => Key::Right,
+        KeyCode::Up => Key::Up,
+        KeyCode::Down => Key::Down,
+        KeyCode::Esc => Key::Esc,
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::F(n) => Key::F(n),
+        KeyCode::Modifier(ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift) => Key::Shift,
+        KeyCode::Modifier(ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl) => {
+            Key::Ctrl
+        }
+        _ => return None,
+    };
+    Some(key)
 }
 
 fn is_ctrl_c(key: KeyEvent) -> bool {
@@ -269,7 +294,7 @@ mod tests {
 
     #[test]
     fn test_key_map_matches_guideline_table() {
-        let handler = InputHandler::new();
+        let handler = InputHandler::default();
         let cases = [
             (KeyCode::Left, InputAction::MoveLeft),
             (KeyCode::Char('4'), InputAction::MoveLeft),
@@ -303,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_letters_work_with_caps_lock() {
-        let handler = InputHandler::new();
+        let handler = InputHandler::default();
         assert_eq!(
             handler.key_to_action(KeyCode::Char('X')),
             Some(InputAction::RotateClockwise)
@@ -316,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_unmapped_keys_do_nothing() {
-        let handler = InputHandler::new();
+        let handler = InputHandler::default();
         for code in [
             KeyCode::Backspace,
             KeyCode::Enter,
@@ -330,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_c_quits_instead_of_holding() {
-        let handler = InputHandler::new();
+        let handler = InputHandler::default();
         let event = key(
             KeyCode::Char('c'),
             KeyModifiers::CONTROL,
@@ -344,13 +369,102 @@ mod tests {
 
     #[test]
     fn test_other_ctrl_keys_do_nothing() {
-        let handler = InputHandler::new();
+        let handler = InputHandler::default();
         let event = key(
             KeyCode::Char('z'),
             KeyModifiers::CONTROL,
             KeyEventKind::Press,
         );
         assert_eq!(handler.key_to_event(event), None);
+    }
+
+    #[test]
+    fn test_shift_and_ctrl_alone_hold_and_rotate_counterclockwise() {
+        let handler = InputHandler::default();
+        let cases = [
+            (
+                ModifierKeyCode::LeftShift,
+                KeyModifiers::SHIFT,
+                InputAction::Hold,
+            ),
+            (
+                ModifierKeyCode::RightShift,
+                KeyModifiers::SHIFT,
+                InputAction::Hold,
+            ),
+            (
+                ModifierKeyCode::LeftControl,
+                KeyModifiers::CONTROL,
+                InputAction::RotateCounterClockwise,
+            ),
+            (
+                ModifierKeyCode::RightControl,
+                KeyModifiers::NONE,
+                InputAction::RotateCounterClockwise,
+            ),
+        ];
+        for (code, modifiers, action) in cases {
+            let event = key(KeyCode::Modifier(code), modifiers, KeyEventKind::Press);
+            assert_eq!(
+                handler.key_to_event(event),
+                Some(InputEvent::Pressed(action)),
+                "{code:?}"
+            );
+        }
+        let alt = key(
+            KeyCode::Modifier(ModifierKeyCode::LeftAlt),
+            KeyModifiers::ALT,
+            KeyEventKind::Press,
+        );
+        assert_eq!(handler.key_to_event(alt), None);
+    }
+
+    #[test]
+    fn test_held_ctrl_does_not_turn_play_keys_into_quit_when_ctrl_is_a_play_key() {
+        let mut handler = InputHandler::default();
+        handler.set_modifier_keys(true);
+        let ctrl = |code| key(code, KeyModifiers::CONTROL, KeyEventKind::Press);
+        assert_eq!(
+            handler.key_to_event(ctrl(KeyCode::Char('c'))),
+            Some(InputEvent::Pressed(InputAction::Hold))
+        );
+        assert_eq!(
+            handler.key_to_event(ctrl(KeyCode::Left)),
+            Some(InputEvent::Pressed(InputAction::MoveLeft))
+        );
+
+        // With Ctrl unbound, Ctrl+C still quits.
+        let controls: Controls =
+            serde_json::from_str(r#"{"rotate_counterclockwise": ["z"]}"#).unwrap();
+        let mut handler = InputHandler::new(controls);
+        handler.set_modifier_keys(true);
+        assert_eq!(
+            handler.key_to_event(ctrl(KeyCode::Char('c'))),
+            Some(InputEvent::Pressed(InputAction::Quit))
+        );
+    }
+
+    #[test]
+    fn test_remapped_keys_replace_the_defaults() {
+        let controls: Controls =
+            serde_json::from_str(r#"{"move_left": ["a"], "move_right": ["d"], "hold": ["tab"]}"#)
+                .unwrap();
+        let handler = InputHandler::new(controls);
+        assert_eq!(
+            handler.key_to_action(KeyCode::Char('A')),
+            Some(InputAction::MoveLeft)
+        );
+        assert_eq!(
+            handler.key_to_action(KeyCode::Char('d')),
+            Some(InputAction::MoveRight)
+        );
+        assert_eq!(handler.key_to_action(KeyCode::Tab), Some(InputAction::Hold));
+        assert_eq!(handler.key_to_action(KeyCode::Left), None);
+        assert_eq!(handler.key_to_action(KeyCode::Char('c')), None);
+        assert_eq!(
+            handler.key_to_action(KeyCode::Char('x')),
+            Some(InputAction::RotateClockwise)
+        );
     }
 
     #[test]
@@ -441,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_event_kinds() {
-        let handler = InputHandler::new();
+        let handler = InputHandler::default();
         let event = |kind| key(KeyCode::Left, KeyModifiers::NONE, kind);
         assert_eq!(
             handler.key_to_event(event(KeyEventKind::Press)),

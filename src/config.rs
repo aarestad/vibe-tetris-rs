@@ -1,3 +1,4 @@
+use crate::controls::Controls;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -80,6 +81,8 @@ pub struct GameConfig {
     pub das_repeat: u64,
     /// Lock Down ruleset.
     pub lock_down_mode: LockDownMode,
+    /// The keys for each play action (Guideline 4).
+    pub controls: Controls,
 }
 
 impl Default for GameConfig {
@@ -103,6 +106,7 @@ impl Default for GameConfig {
             das_delay: 300,
             das_repeat: 50,
             lock_down_mode: LockDownMode::Extended,
+            controls: Controls::default(),
         }
     }
 }
@@ -180,7 +184,7 @@ impl GameConfig {
             self.sound_effects_volume <= MAX_VOLUME,
             "sound_effects_volume must be from 0 to {MAX_VOLUME}"
         );
-        Ok(())
+        self.controls.validate()
     }
 }
 
@@ -196,6 +200,18 @@ mod tests {
     #[test]
     fn test_default_is_valid() {
         assert!(GameConfig::default().validate().is_ok());
+    }
+
+    /// The README's sample config must load and show the real defaults.
+    #[test]
+    fn test_readme_sample_config_is_valid_and_matches_the_defaults() {
+        let readme = include_str!("../README.markdown");
+        let start = readme.find("```json\n").unwrap() + "```json\n".len();
+        let end = start + readme[start..].find("```").unwrap();
+        let config: GameConfig = serde_json::from_str(&readme[start..end]).unwrap();
+        assert!(config.validate().is_ok());
+        let json = |config: &GameConfig| serde_json::to_value(config).unwrap();
+        assert_eq!(json(&config), json(&GameConfig::default()));
     }
 
     #[test]
